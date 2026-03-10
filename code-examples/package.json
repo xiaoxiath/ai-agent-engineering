@@ -1,0 +1,25 @@
+{
+  "name": "ai-agent-engineering-examples",
+  "version": "1.0.0",
+  "description": "Code examples for AI Agent Engineering book",
+  "type": "module",
+  "scripts": {
+    "example:01": "tsx 01-basic-agent-loop.ts",
+    "example:02": "tsx 02-state-management.ts",
+    "example:03": "tsx 03-context-engineering.ts",
+    "example:04": "tsx 04-tool-system.ts",
+    "example:05": "tsx 05-multi-agent-orchestration.ts",
+    "example:06": "tsx 06-mcp-server.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "openai": "^4.70.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "@types/node": "^20.0.0"
+  }
+}

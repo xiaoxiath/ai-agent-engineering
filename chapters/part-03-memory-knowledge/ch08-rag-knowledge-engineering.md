@@ -3389,7 +3389,7 @@ class CostAwareRouter {
       case "moderate":
         return "gpt-4o";          // 中等复杂度
       case "complex":
-        return "claude-3-opus";   // 复杂问题用最强模型
+        return "claude-sonnet-4";   // 复杂问题用高能力模型
       default:
         return "gpt-4o";
     }
@@ -3632,7 +3632,7 @@ class ProductionRAGService {
 
 ### 下一步
 
-本章的 RAG 系统为 Agent 提供了强大的外部知识获取能力。下一章我们将探讨如何将 RAG 与 Agent 的规划和执行能力结合，构建能够自主完成复杂任务的智能体系统。
+本章的 RAG 系统为 Agent 提供了强大的外部知识获取能力。下一章（第九章）我们将进入 Multi-Agent 领域，探讨多 Agent 编排基础——包括 ADK 三原语、Agent 间通信机制、共享状态协调与容错恢复。
 
 ---
 

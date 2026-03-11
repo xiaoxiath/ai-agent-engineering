@@ -3946,7 +3946,7 @@ const ORCHESTRATION_PRINCIPLES = {
 ### 10.11.3 下一步
 
 掌握了编排模式后，你已经具备构建 Multi-Agent 系统的架构能力。
-接下来在第 11 章中，我们将探讨 **Agent 间通信协议和消息传递机制**——
+接下来在第 11 章中，我们将探讨 **Multi-Agent 框架对比与选型**——
 如何让 Agent 之间高效、可靠地传递信息，是大规模 Multi-Agent 系统的另一核心挑战。
 
 ---

@@ -237,6 +237,8 @@ interface PerformanceMetrics {
   readonly avgTokensPerStep: number;
 }
 
+
+> **接口演化说明**：第 3 章的 `AgentState` 侧重于描述 Agent 的高层执行状态（goal / plan / steps），适合理解架构全貌。本章的 `AgentState` 则面向工程实现，聚焦于消息流、工具调用和版本化状态变迁，为 Reducer 模式和检查点系统提供精确的数据模型。两者是同一概念在不同抽象层级的表达。
 /** Agent 完整状态 */
 interface AgentState {
   readonly id: string;
@@ -2265,7 +2267,7 @@ console.log(lazyState.messages.length);  // 触发 loadMessagesFromDB
 
 ### 下一步
 
-在下一章（第 5 章：**工具集成**）中，我们将利用本章构建的状态管理体系，实现：
+在下一章（第 5 章：**Context Engineering — 上下文工程**）中，我们将利用本章构建的状态管理体系，探讨：
 
 - **Tool 注册表**：动态注册/注销 Tool，支持版本化和热更新。
 - **Tool 沙箱**：在隔离环境中执行 Tool，防止副作用泄漏。

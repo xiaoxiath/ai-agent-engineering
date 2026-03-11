@@ -1,7 +1,7 @@
-# 第6章 工具系统设计 — Agent 的手和脚
+# 第 6 章 工具系统设计 — Agent 的手和脚
 
 > **"An agent without tools is just a chatbot with ambitions."**
-> — Andrej Karpathy
+> — Andrej Karpathy（意译）
 
 大语言模型（LLM）本身是一个"纯思维"的存在——它能推理、规划、生成文本，但无法直接与外部世界交互。工具系统（Tool System）赋予了 Agent "手和脚"，让它能够读取数据库、调用 API、操作文件系统、执行代码，乃至控制物理设备。
 

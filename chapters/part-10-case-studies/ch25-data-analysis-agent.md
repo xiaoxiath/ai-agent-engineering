@@ -92,10 +92,15 @@ Generate the SQL query:
   }
   
   private async identifyRelevantTables(question: string): Promise<TableDefinition[]> {
-    // 使用嵌入搜索最相关的表
-    return [];
+    const prompt = `Given these tables:\n${this.schema.tables.map(t => `${t.name}: ${t.columns.map(c => c.name).join(', ')}`).join('\n')}\n\nWhich tables are needed to answer: "${question}"?\nReturn table names as JSON array.`;
+    const response = await this.llm.complete(prompt);
+    try {
+      const tableNames: string[] = JSON.parse(response);
+      return this.schema.tables.filter(t => tableNames.includes(t.name));
+    } catch {
+      return this.schema.tables.slice(0, 3); // 回退：返回前 3 张表
+    }
   }
-  
   private formatSchemaForPrompt(tables: TableDefinition[]): string {
     return tables.map(t => {
       const cols = t.columns.map(c => `  ${c.name} ${c.type}${c.nullable ? ' NULL' : ' NOT NULL'} -- ${c.description}`);
@@ -103,8 +108,20 @@ Generate the SQL query:
     }).join('\n\n');
   }
   
-  private findSimilarQueries(question: string): QueryTemplate[] { return []; }
-  private async retryWithFeedback(question: string, sql: string, errors: string[]): Promise<SQLResult> { return {} as SQLResult; }
+  private findSimilarQueries(question: string): QueryTemplate[] {
+    const keywords = question.toLowerCase().split(/\s+/);
+    return this.queryTemplates
+      .map(t => ({ ...t, score: keywords.filter(k => t.description.toLowerCase().includes(k)).length }))
+      .filter(t => t.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+  }
+  private async retryWithFeedback(question: string, sql: string, errors: string[]): Promise<SQLResult> {
+    const prompt = `The following SQL query failed:\n\`\`\`sql\n${sql}\n\`\`\`\nErrors: ${errors.join('; ')}\n\nOriginal question: "${question}"\n\nGenerate a corrected SQL query:`;
+    const correctedSQL = await this.llm.complete(prompt);
+    const cleanSQL = correctedSQL.replace(/\`\`\`sql\n?|\`\`\`/g, '').trim();
+    return this.db.execute(cleanSQL);
+  }
 }
 ```
 
@@ -172,14 +189,44 @@ class ChartRecommender {
     };
   }
   
-  private configureBar(data: QueryResult, profile: DataProfile): ChartConfig { return {} as ChartConfig; }
-  private configureGroupedBar(data: QueryResult, profile: DataProfile): ChartConfig { return {} as ChartConfig; }
-  private configureLine(data: QueryResult, profile: DataProfile): ChartConfig { return {} as ChartConfig; }
-  private configureHistogram(data: QueryResult, profile: DataProfile): ChartConfig { return {} as ChartConfig; }
-  private configureScatter(data: QueryResult, profile: DataProfile): ChartConfig { return {} as ChartConfig; }
-  private configurePie(data: QueryResult, profile: DataProfile): ChartConfig { return {} as ChartConfig; }
-  private configureKPI(data: QueryResult, profile: DataProfile): ChartConfig { return {} as ChartConfig; }
-  private configureTable(data: QueryResult, profile: DataProfile): ChartConfig { return {} as ChartConfig; }
+  private configureBar(data: QueryResult, profile: DataProfile): ChartConfig {
+    const xField = profile.categoricalColumns[0] ?? data.columns[0];
+    const yField = profile.numericColumns[0] ?? data.columns[1];
+    return { type: 'bar', data: data.rows, xField, yField, title: `${yField} by ${xField}`, color: '#5B8FF9' };
+  }
+  private configureGroupedBar(data: QueryResult, profile: DataProfile): ChartConfig {
+    const xField = profile.categoricalColumns[0] ?? data.columns[0];
+    const yField = profile.numericColumns[0] ?? data.columns[1];
+    const groupField = profile.categoricalColumns[1] ?? data.columns[2];
+    return { type: 'grouped-bar', data: data.rows, xField, yField, seriesField: groupField, title: `${yField} by ${xField} (grouped by ${groupField})` };
+  }
+  private configureLine(data: QueryResult, profile: DataProfile): ChartConfig {
+    const xField = profile.temporalColumns[0] ?? profile.categoricalColumns[0] ?? data.columns[0];
+    const yField = profile.numericColumns[0] ?? data.columns[1];
+    return { type: 'line', data: data.rows.sort((a, b) => String(a[xField]).localeCompare(String(b[xField]))), xField, yField, title: `${yField} over ${xField}` };
+  }
+  private configureHistogram(data: QueryResult, profile: DataProfile): ChartConfig {
+    const field = profile.numericColumns[0] ?? data.columns[0];
+    return { type: 'histogram', data: data.rows, binField: field, binWidth: (profile.stats[field]?.max - profile.stats[field]?.min) / 20, title: `Distribution of ${field}` };
+  }
+  private configureScatter(data: QueryResult, profile: DataProfile): ChartConfig {
+    const xField = profile.numericColumns[0] ?? data.columns[0];
+    const yField = profile.numericColumns[1] ?? data.columns[1];
+    return { type: 'scatter', data: data.rows, xField, yField, title: `${yField} vs ${xField}`, pointSize: 3 };
+  }
+  private configurePie(data: QueryResult, profile: DataProfile): ChartConfig {
+    const angleField = profile.numericColumns[0] ?? data.columns[1];
+    const colorField = profile.categoricalColumns[0] ?? data.columns[0];
+    return { type: 'pie', data: data.rows, angleField, colorField, title: `${angleField} composition` };
+  }
+  private configureKPI(data: QueryResult, profile: DataProfile): ChartConfig {
+    const valueField = profile.numericColumns[0] ?? data.columns[0];
+    const value = data.rows[0]?.[valueField] ?? 0;
+    return { type: 'kpi', data: [{ value, label: valueField }], title: valueField, value: Number(value) };
+  }
+  private configureTable(data: QueryResult, profile: DataProfile): ChartConfig {
+    return { type: 'table', data: data.rows, columns: data.columns.map(c => ({ field: c, title: c })), title: 'Query Results' };
+  }
 }
 ```
 
@@ -240,9 +287,33 @@ Use natural, conversational Chinese. Cite specific numbers.
     return this.formatStatistics(data);
   }
   
-  private formatAsTable(data: QueryResult): string { return ''; }
-  private formatStatistics(data: QueryResult): string { return ''; }
-  private extractFollowups(text: string): string[] { return []; }
+  private formatAsTable(data: QueryResult): string {
+    if (data.rows.length === 0) return '(No data)';
+    const headers = data.columns.join(' | ');
+    const separator = data.columns.map(() => '---').join(' | ');
+    const rows = data.rows.slice(0, 20).map(r => data.columns.map(c => String(r[c] ?? '')).join(' | '));
+    return `| ${headers} |\n| ${separator} |\n${rows.map(r => `| ${r} |`).join('\n')}`;
+  }
+  private formatStatistics(data: QueryResult): string {
+    const numericCols = data.columns.filter(c => typeof data.rows[0]?.[c] === 'number');
+    return numericCols.map(col => {
+      const values = data.rows.map(r => Number(r[col])).filter(v => !isNaN(v));
+      const sum = values.reduce((a, b) => a + b, 0);
+      const avg = sum / values.length;
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      return `${col}: avg=${avg.toFixed(2)}, min=${min}, max=${max}, sum=${sum.toFixed(2)}`;
+    }).join('\n');
+  }
+  private extractFollowups(text: string): string[] {
+    const followupPatterns = [/further\s+(?:analyze|investigate|explore)\s+(.+?)(?:\.|$)/gi, /可以进一步(.+?)(?:\.|。|$)/g, /建议.*?(?:分析|查看|对比)(.+?)(?:\.|。|$)/g];
+    const followups: string[] = [];
+    for (const pattern of followupPatterns) {
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(text)) !== null) { followups.push(match[1].trim()); }
+    }
+    return followups.length > 0 ? followups : ['按时间维度细分分析', '与历史同期数据对比', '分析主要影响因素'];
+  }
 }
 ```
 
@@ -357,8 +428,30 @@ class SQLValidator {
     return { isValid: true, sql, explanation: '验证通过' };
   }
 
-  private parseSQL(sql: string): { valid: boolean; error?: string } { return { valid: true }; }
-  private extractTableNames(sql: string): string[] { return []; }
+  private parseSQL(sql: string): { valid: boolean; error?: string } {
+    const dangerousKeywords = ['DROP', 'DELETE', 'TRUNCATE', 'ALTER', 'INSERT', 'UPDATE', 'EXEC', 'EXECUTE'];
+    const upperSQL = sql.toUpperCase().trim();
+    for (const keyword of dangerousKeywords) {
+      if (upperSQL.includes(keyword)) return { valid: false, error: `Dangerous keyword "${keyword}" detected. Only SELECT queries are allowed.` };
+    }
+    if (!upperSQL.startsWith('SELECT') && !upperSQL.startsWith('WITH')) {
+      return { valid: false, error: 'Only SELECT and WITH (CTE) queries are allowed.' };
+    }
+    const openParens = (sql.match(/\(/g) || []).length;
+    const closeParens = (sql.match(/\)/g) || []).length;
+    if (openParens !== closeParens) return { valid: false, error: 'Unbalanced parentheses.' };
+    return { valid: true };
+  }
+  private extractTableNames(sql: string): string[] {
+    const tablePattern = /(?:FROM|JOIN)\s+([a-zA-Z_][\w.]*)/gi;
+    const tables: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = tablePattern.exec(sql)) !== null) {
+      const tableName = match[1].toLowerCase();
+      if (!tables.includes(tableName)) tables.push(tableName);
+    }
+    return tables;
+  }
 }
 ```
 

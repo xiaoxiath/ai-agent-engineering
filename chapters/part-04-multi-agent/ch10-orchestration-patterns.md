@@ -3879,11 +3879,180 @@ const LLM_CONFIGS_BY_ROLE = {
 - Fan-Out 可以逐 Worker 追踪
 - Hierarchical 需要较完善的任务树可视化
 
+## 10.11 Anthropic 编排模式参考
+
+2024 年 12 月，Anthropic 发布了「Building Effective Agents」技术博客，提出了一套从简单到复杂的 Agent 编排分类体系。与前面章节介绍的多 Agent 编排模式不同，Anthropic 的框架更聚焦于**单 Agent 内部的工作流组织方式**，并明确区分了 **Workflow（预定义编排）** 和 **Agent（自主决策）** 两个层次。这套分类对理解"何时需要多 Agent、何时单 Agent 工作流就足够"具有重要参考价值。
+
+> **术语说明**：Anthropic 将 LLM 驱动的预定义流程称为 **Workflow**，将拥有自主工具调用能力的系统称为 **Agent**。本节沿用其术语体系。
+
+### 10.11.1 Prompt Chaining（提示链）
+
+**核心思想**：将任务分解为固定步骤序列，每一步的 LLM 输出作为下一步的输入。步骤之间可以插入程序化的"门控"检查（gate check），确保中间结果符合质量要求后再继续。
+
+**适用场景**：
+- 任务可自然分解为固定的子步骤
+- 愿意用更高延迟换取更高准确性
+- 每一步需要不同的 prompt 或模型参数
+
+**与本书模式的映射**：对应 §10.3 Sequential Pipeline 流水线模式的轻量化版本。
+
+```typescript
+/** Prompt Chaining — 带门控检查的提示链 */
+class PromptChain {
+  private steps: ChainStep[] = [];
+
+  addStep(prompt: string, gate?: (output: string) => boolean): this {
+    this.steps.push({ prompt, gate });
+    return this;
+  }
+
+  async execute(initialInput: string, llm: LLMClient): Promise<string> {
+    let currentInput = initialInput;
+
+    for (const [i, step] of this.steps.entries()) {
+      const output = await llm.generate(
+        step.prompt.replace('{{input}}', currentInput)
+      );
+
+      // 门控检查：不通过则提前终止
+      if (step.gate && !step.gate(output)) {
+        throw new Error(`Gate check failed at step ${i}: output did not meet criteria`);
+      }
+
+      currentInput = output;
+    }
+
+    return currentInput;
+  }
+}
+
+// 用法示例：生成营销文案 → 翻译 → 合规审查
+const chain = new PromptChain()
+  .addStep('为以下产品写一段营销文案：{{input}}')
+  .addStep('将以下文案翻译为英文：{{input}}')
+  .addStep(
+    '审查以下营销文案是否合规，返回 PASS 或 FAIL 及原因：{{input}}',
+    (output) => output.startsWith('PASS')
+  );
+```
+
+### 10.11.2 Routing（路由）
+
+**核心思想**：用一次 LLM 调用对输入进行分类，然后将请求路由到不同的专用处理流程。分类与处理分离，各分支可以独立优化 prompt。
+
+**适用场景**：
+- 输入类型多样，需要不同处理策略
+- 分类准确度可通过 LLM 可靠达成
+- 各类别的处理逻辑差异显著
+
+**与本书模式的映射**：对应 §10.2 Coordinator 模式中的路由子模块，以及 §10.3 Pipeline 模式中的条件分支。
+
+```typescript
+// 路由模式核心：分类 → 分发
+async function routeRequest(input: string, llm: LLMClient) {
+  const category = await llm.classify(input, [
+    'billing', 'technical_support', 'account_management', 'general_inquiry'
+  ]);
+
+  const handlers: Record<string, (input: string) => Promise<string>> = {
+    billing: handleBilling,
+    technical_support: handleTechSupport,
+    account_management: handleAccount,
+    general_inquiry: handleGeneral,
+  };
+
+  return handlers[category](input);
+}
+```
+
+### 10.11.3 Parallelization（并行化）
+
+**核心思想**：同时运行多个 LLM 调用，然后程序化地聚合结果。两种子模式：
+
+- **Sectioning（分区）**：将任务拆分为独立子任务并行处理，每个子任务关注不同方面。例如：同时检查代码的安全性、性能和可读性。
+- **Voting（投票）**：将同一任务交给多个 LLM 实例（或不同 prompt），通过投票机制决定最终结果。适合需要高置信度的判断场景。
+
+**适用场景**：
+- 子任务之间无依赖关系
+- 需要多角度审查或高置信度判断
+- 延迟预算允许但需要更高质量
+
+**与本书模式的映射**：对应 §10.4 Fan-Out/Gather 扇出聚合模式。Sectioning 对应异构扇出，Voting 对应 §10.6 Debate 模式的简化版。
+
+### 10.11.4 Orchestrator-Workers（编排者-工作者）
+
+**核心思想**：中央编排者 LLM 动态分析任务，决定需要调用哪些子任务以及如何分配。与并行化的区别在于——子任务不是预定义的，而是由编排者根据输入动态规划。
+
+**适用场景**：
+- 无法提前预知需要哪些子步骤
+- 不同输入需要不同的子任务组合
+- 需要在运行时动态调整策略
+
+**与本书模式的映射**：直接对应 §10.2 Coordinator 协调者模式和 §3.2.7 Delegation 委派模式。这是 Anthropic 体系中最接近本书多 Agent 编排的模式。
+
+### 10.11.5 Evaluator-Optimizer（评估者-优化者）
+
+**核心思想**：一个 LLM 生成输出，另一个 LLM 评估输出质量并提供反馈，生成者根据反馈迭代改进，循环直到评估者满意。
+
+**适用场景**：
+- 有明确的质量标准可以用 LLM 评估
+- 迭代改进能显著提升输出质量
+- 可以接受多轮 LLM 调用的延迟和成本
+
+**与本书模式的映射**：直接对应 §10.5 Generator-Critic 生成-批评模式。
+
+### 10.11.6 Autonomous Agent（自主智能体）
+
+**核心思想**：当任务复杂到无法用上述任何预定义工作流模式解决时，赋予 Agent 完整的工具调用能力和自主决策循环——Agent 自行规划、执行、观察结果、调整策略，直到任务完成或达到停止条件。
+
+**适用场景**：
+- 开放式问题，无法提前规划所有步骤
+- 需要根据中间结果动态调整策略
+- 可以容忍较高的成本和延迟，但需要高质量的最终结果
+
+**关键风险**：自主 Agent 的错误会在循环中累积。Anthropic 建议在沙箱环境中运行、设置适当的停止条件（最大迭代次数、超时、成本上限），并通过人机协作（human-in-the-loop）降低风险。
+
+### 10.11.7 模式选择：从 Workflow 到 Agent
+
+Anthropic 的核心建议是**从最简单的方案开始，只在必要时增加复杂度**。以下决策树综合了 Anthropic 的建议与本书的编排模式：
+
+```
+                 任务需求分析
+                      |
+            任务步骤是否固定？
+            +--------+--------+
+           是                  否
+            |                   |
+     Prompt Chaining       输入类型是否多样？
+      （提示链）            +--------+--------+
+                           是                  否
+                            |                   |
+                        Routing            子任务可否并行？
+                         （路由）          +--------+--------+
+                                          是                  否
+                                           |                   |
+                                    Parallelization      需要动态规划？
+                                      （并行化）         +--------+--------+
+                                                        是                  否
+                                                         |                   |
+                                              Orchestrator-Workers   需要迭代优化？
+                                               （编排者-工作者）     +--------+--------+
+                                                                    是                  否
+                                                                     |                   |
+                                                            Evaluator-Optimizer   Autonomous Agent
+                                                             （评估者-优化者）     （自主智能体）
+```
+
+> **实践建议**：大多数实际项目中，Prompt Chaining + Routing + Parallelization 的组合就能解决 80% 的需求。只有在这些简单模式明显不够用时，才考虑引入 Orchestrator-Workers 或完全自主的 Agent。这与本书 §10.10 模式选择决策树的"从简单开始"原则完全一致。
+
 ---
 
-## 10.11 本章小结
 
-### 10.11.1 核心要点回顾
+---
+
+## 10.12 本章小结
+
+### 10.12.1 核心要点回顾
 
 本章系统介绍了九种 Multi-Agent 编排模式，从简单到复杂依次为：
 
@@ -3911,7 +4080,7 @@ const LLM_CONFIGS_BY_ROLE = {
 8. **模式组合** -- 复合拓扑，应对真实复杂系统。
    关键实现要素：嵌套规则、超时传递、错误冒泡、角色化 LLM 配置。
 
-### 10.11.2 设计原则
+### 10.12.2 设计原则
 
 在构建 Multi-Agent 系统时，始终牢记以下原则：
 
@@ -3943,7 +4112,7 @@ const ORCHESTRATION_PRINCIPLES = {
 } as const;
 ```
 
-### 10.11.3 下一步
+### 10.12.3 下一步
 
 掌握了编排模式后，你已经具备构建 Multi-Agent 系统的架构能力。
 接下来在第 11 章中，我们将探讨 **Multi-Agent 框架对比与选型**——

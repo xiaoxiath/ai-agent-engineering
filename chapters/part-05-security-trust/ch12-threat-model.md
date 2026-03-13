@@ -4,15 +4,17 @@
 
 在第 11 章（框架对比与选型）中，我们从工程角度对比了主流 Agent 框架的能力与适用场景。然而，无论选择哪个框架，安全都是不可回避的核心议题。当 Agent 拥有了调用工具、访问数据、执行代码的能力时，它同时也打开了一扇攻击者可能利用的大门。
 
-本章将系统性地构建 Agent 安全威胁模型。我们首先介绍 OWASP 针对 Agentic 系统发布的 ASI（Agentic Security Initiative）Top 10 风险框架，然后深入分析每个攻击面，最后通过真实世界案例和完整的 TypeScript 实现，展示如何识别、评估和防御这些威胁。本章内容将为第 13 章（Prompt 注入防御）和第 14 章（信任架构）提供威胁模型基础。
+本章将系统性地构建 Agent 安全威胁模型。我们首先介绍 OWASP 发布的 Agentic Applications Top 10 风险框架，然后深入分析每个攻击面，最后通过真实世界案例和完整的 TypeScript 实现，展示如何识别、评估和防御这些威胁。本章内容将为第 13 章（Prompt 注入防御）和第 14 章（信任架构）提供威胁模型基础。
 
 ---
 
-## 12.1 OWASP ASI01-ASI10 完整框架
+## 12.1 OWASP Top 10 for Agentic Applications 完整框架
 
-### 12.1.1 ASI Top 10 风险总览
+### 12.1.1 Agentic Applications Top 10 风险总览
 
-OWASP Agentic Security Initiative（ASI）是专门针对自主 Agent 系统的安全风险分类框架。与传统 Web 应用安全（OWASP Top 10）和 LLM 应用安全（OWASP LLM Top 10）不同，ASI 关注的是 Agent 系统特有的安全问题——即当 AI 系统拥有自主决策和执行能力时引入的新型风险。
+OWASP Top 10 for Agentic Applications 是 OWASP 专门针对自主 Agent 系统发布的安全风险分类框架。与传统 Web 应用安全（OWASP Top 10）和 LLM 应用安全（OWASP LLM Top 10）不同，该框架关注的是 Agent 系统特有的安全问题——即当 AI 系统拥有自主决策和执行能力时引入的新型风险。
+
+> **编号说明**：本书采用 ASI-01 至 ASI-10 编号，用于便于与传统 OWASP Top 10（A01-A10）和 LLM Top 10（LLM01-LLM10）区分。这些编号为本书所采用的简写，并非 OWASP 官方编号。
 
 | 编号   | 风险名称                   | 核心威胁             | 影响等级 |
 | ------ | -------------------------- | -------------------- | -------- |

@@ -5,6 +5,8 @@
 
 在 Agent 系统中，**上下文（Context）** 是模型唯一能"看见"的世界。无论你的工具链多强大、规划算法多精妙，如果送入模型的上下文窗口中信息不对、不全、或者被噪声淹没，Agent 的输出就不可能正确。**上下文工程**（Context Engineering）正是围绕这一核心问题展开的系统化方法论：它研究如何为每一次 LLM 调用精心构建最优的信息输入。
 
+**术语溯源。**"Context Engineering" 这一概念由 Shopify CEO **Tobi Lutke** 于 2025 年 6 月率先提出，他主张用"上下文工程"替代"提示工程"作为更有用的思维框架。**Andrej Karpathy** 随即以"Prompt Engineering is dead; Context Engineering is the new game"将其推向更广泛的技术社区（见本章题词）。此后，这一概念被众多从业者发展为涵盖写入、选择、压缩、隔离、持久化与观测的系统化工程学科——这正是本章的主题。
+
 本章将从六大原则出发，深入探讨上下文腐化检测、多层压缩、结构化笔记、上下文传递策略、长对话管理等关键主题，并给出完整的 TypeScript 实现。
 
 ---
@@ -3965,11 +3967,387 @@ async function longConversationDemo(): Promise<void> {
 }
 ```
 
-> **性能提示**：对于超长对话（500+ 轮），建议设置 `compactionThreshold: 10` 以更频繁地触发压实，并将 `maxHistoryTokens` 控制在窗口大小的 40% 以内，为 System Prompt、工具结果和笔记留出充足空间。
+---
+
+## 5.7 Context Engineering 反模式
+
+前面各节讨论了上下文工程的最佳实践，但在实际生产环境中，开发者更常遇到的是各种**反模式**（Anti-patterns）。这些反模式往往在小规模测试中不易暴露，却在用户量增长或对话轮次加深后造成严重的质量退化和安全风险。本节系统梳理四种高频反模式，并给出检测与缓解方案。
+
+### 5.7.1 Context Pollution（上下文污染）
+
+**定义**：无关或低质量的信息被注入到上下文中，稀释模型对关键信息的注意力，导致响应质量下降。
+
+**常见成因**：
+- **过度热心的工具返回**：RAG 检索返回大量低相关度片段，Tool Use 结果未经裁剪直接注入
+- **冗长的 System Prompt**：把所有可能的指令堆叠在一起，而非按场景动态选择
+- **未压缩的对话历史**：完整保留数百轮对话，其中大量闲聊和确认消息毫无决策价值
+
+```typescript
+// ===== Context Pollution Detector =====
+
+interface PollutionSignal {
+  source: "tool" | "history" | "system" | "retrieval";
+  content: string;
+  relevanceScore: number;   // 0-1, 低于阈值视为污染
+  tokenCost: number;
+}
+
+class ContextPollutionDetector {
+  private relevanceThreshold: number;
+
+  constructor(relevanceThreshold: number = 0.3) {
+    this.relevanceThreshold = relevanceThreshold;
+  }
+
+  /**
+   * 扫描上下文窗口，标记疑似污染的片段
+   */
+  detect(
+    contextBlocks: Array<{ source: string; content: string }>,
+    currentQuery: string
+  ): PollutionSignal[] {
+    const signals: PollutionSignal[] = [];
+
+    for (const block of contextBlocks) {
+      const relevance = this.computeRelevance(block.content, currentQuery);
+      const tokens = this.estimateTokens(block.content);
+
+      if (relevance < this.relevanceThreshold) {
+        signals.push({
+          source: block.source as PollutionSignal["source"],
+          content: block.content.slice(0, 100) + "...",
+          relevanceScore: relevance,
+          tokenCost: tokens,
+        });
+      }
+    }
+
+    // 按 token 成本降序——优先处理占用最多空间的污染源
+    return signals.sort((a, b) => b.tokenCost - a.tokenCost);
+  }
+
+  /**
+   * 计算内容与当前查询的相关度（简化的词汇重叠 + 语义估算）
+   */
+  private computeRelevance(content: string, query: string): number {
+    const contentTerms = new Set(this.tokenize(content));
+    const queryTerms = new Set(this.tokenize(query));
+    const overlap = [...queryTerms].filter(t => contentTerms.has(t)).length;
+    return queryTerms.size > 0 ? overlap / queryTerms.size : 0;
+  }
+
+  private tokenize(text: string): string[] {
+    return text.toLowerCase().split(/[\s,.\-;:!?，。；：！？]+/).filter(Boolean);
+  }
+
+  private estimateTokens(text: string): number {
+    const chinese = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+    const other = text.length - chinese;
+    return Math.ceil(chinese / 1.5 + other / 4);
+  }
+}
+```
+
+**缓解策略**：采用**选择性注入**——每个上下文片段在注入前必须通过相关度评分（参考 §5.1.2 的 RRI 三维评分），低于阈值的片段直接丢弃或降级到备用缓冲区。对工具返回结果，设定最大 token 上限并执行 L1 格式压缩后再注入。
+
+### 5.7.2 Context Leakage（上下文泄漏）
+
+**定义**：敏感信息从一个上下文边界泄漏到另一个边界——例如用户 A 的对话内容出现在用户 B 的上下文中，或子 Agent 的内部推理暴露给终端用户。
+
+**常见成因**：
+- **共享内存存储缺乏隔离**：多租户系统中不同用户的记忆写入同一命名空间
+- **Prompt Injection 导致的 System Prompt 泄漏**：恶意用户诱导模型输出系统指令
+- **工具输出携带跨会话 PII**：数据库查询结果未脱敏，包含其他用户的个人信息
+
+```typescript
+// ===== Context Isolation Guard =====
+
+interface BoundaryViolation {
+  type: "cross_user" | "cross_session" | "prompt_leak" | "pii_exposure";
+  severity: "critical" | "high" | "medium";
+  evidence: string;
+  sourceContext: string;
+  targetContext: string;
+}
+
+class ContextIsolationGuard {
+  private piiPatterns: RegExp[];
+  private systemPromptFingerprints: Set<string>;
+
+  constructor(systemPromptSnippets: string[]) {
+    this.piiPatterns = [
+      /\b\d{3}[-.]?\d{4}[-.]?\d{4}\b/,           // 电话号码
+      /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z]{2,}\b/i, // 邮箱
+      /\b\d{6}(19|20)\d{2}(0[1-9]|1[0-2])\d{6}\b/,       // 身份证片段
+    ];
+    // 对 System Prompt 的关键片段取指纹，用于检测泄漏
+    this.systemPromptFingerprints = new Set(
+      systemPromptSnippets.map(s => this.fingerprint(s))
+    );
+  }
+
+  /**
+   * 校验输出是否存在上下文边界违规
+   */
+  validate(
+    output: string,
+    currentUserId: string,
+    currentSessionId: string,
+    contextMetadata: Array<{ userId: string; sessionId: string; content: string }>
+  ): BoundaryViolation[] {
+    const violations: BoundaryViolation[] = [];
+
+    // 1. 检测跨用户泄漏
+    for (const meta of contextMetadata) {
+      if (meta.userId !== currentUserId && output.includes(meta.content.slice(0, 50))) {
+        violations.push({
+          type: "cross_user",
+          severity: "critical",
+          evidence: meta.content.slice(0, 80),
+          sourceContext: `user:${meta.userId}`,
+          targetContext: `user:${currentUserId}`,
+        });
+      }
+    }
+
+    // 2. 检测 System Prompt 泄漏
+    for (const fp of this.systemPromptFingerprints) {
+      if (this.containsFingerprint(output, fp)) {
+        violations.push({
+          type: "prompt_leak",
+          severity: "high",
+          evidence: "[System Prompt content detected in output]",
+          sourceContext: "system",
+          targetContext: `session:${currentSessionId}`,
+        });
+      }
+    }
+
+    // 3. 检测 PII 泄漏
+    for (const pattern of this.piiPatterns) {
+      const matches = output.match(pattern);
+      if (matches) {
+        violations.push({
+          type: "pii_exposure",
+          severity: "high",
+          evidence: matches[0].replace(/.(?=.{4})/g, "*"),
+          sourceContext: "tool_output",
+          targetContext: `session:${currentSessionId}`,
+        });
+      }
+    }
+
+    return violations;
+  }
+
+  private fingerprint(text: string): string {
+    // 简化指纹：取文本的关键 n-gram
+    return text.toLowerCase().replace(/\s+/g, "").slice(0, 32);
+  }
+
+  private containsFingerprint(text: string, fp: string): boolean {
+    return text.toLowerCase().replace(/\s+/g, "").includes(fp);
+  }
+}
+```
+
+**缓解策略**：严格执行上下文隔离（参考 §5.1.4 的四级隔离策略），所有内存存储按 `userId + sessionId` 做命名空间隔离；工具输出在注入上下文前强制经过 PII 扫描和脱敏；System Prompt 的关键指令使用对抗性测试验证不可提取。
+
+### 5.7.3 Token Budget Explosion（Token 预算爆炸）
+
+**定义**：上下文窗口被以超出预期的速度消耗殆尽，通常发生在运行时而非设计时，导致关键信息被截断或 API 调用直接失败。
+
+**常见成因**：
+- **递归工具调用产生冗长输出**：Agent 循环调用搜索工具，每次结果都追加到上下文
+- **无界对话历史**：缺乏压缩或裁剪策略，对话历史线性增长直至撑满窗口
+- **知识库检索未截断**：RAG 返回整篇文档而非相关段落
+
+```typescript
+// ===== Token Budget Monitor =====
+
+interface BudgetAllocation {
+  system: number;     // System Prompt 预算比例
+  history: number;    // 对话历史预算比例
+  tools: number;      // 工具结果预算比例
+  response: number;   // 预留给模型响应的比例
+}
+
+interface BudgetAlert {
+  component: keyof BudgetAllocation;
+  currentTokens: number;
+  budgetTokens: number;
+  usagePercent: number;
+  action: "warn" | "compact" | "truncate" | "reject";
+}
+
+class TokenBudgetMonitor {
+  private maxTokens: number;
+  private allocation: BudgetAllocation;
+  private usage: Record<keyof BudgetAllocation, number>;
+  private warningThreshold: number;
+  private criticalThreshold: number;
+
+  constructor(
+    maxTokens: number,
+    allocation: BudgetAllocation = { system: 0.15, history: 0.40, tools: 0.30, response: 0.15 },
+    warningThreshold: number = 0.7,
+    criticalThreshold: number = 0.9
+  ) {
+    this.maxTokens = maxTokens;
+    this.allocation = allocation;
+    this.usage = { system: 0, history: 0, tools: 0, response: 0 };
+    this.warningThreshold = warningThreshold;
+    this.criticalThreshold = criticalThreshold;
+  }
+
+  /**
+   * 记录某个组件的 token 消耗并检查是否触发告警
+   */
+  record(component: keyof BudgetAllocation, tokens: number): BudgetAlert | null {
+    this.usage[component] = tokens;
+    const budget = this.maxTokens * this.allocation[component];
+    const usagePercent = tokens / budget;
+
+    if (usagePercent >= this.criticalThreshold) {
+      return {
+        component,
+        currentTokens: tokens,
+        budgetTokens: budget,
+        usagePercent,
+        action: component === "response" ? "reject" : "truncate",
+      };
+    }
+
+    if (usagePercent >= this.warningThreshold) {
+      return {
+        component,
+        currentTokens: tokens,
+        budgetTokens: budget,
+        usagePercent,
+        action: "compact",
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * 获取全局预算使用概览
+   */
+  getOverview(): { totalUsed: number; totalBudget: number; alerts: BudgetAlert[] } {
+    const alerts: BudgetAlert[] = [];
+    let totalUsed = 0;
+
+    for (const comp of Object.keys(this.allocation) as (keyof BudgetAllocation)[]) {
+      totalUsed += this.usage[comp];
+      const alert = this.record(comp, this.usage[comp]);
+      if (alert) alerts.push(alert);
+    }
+
+    return { totalUsed, totalBudget: this.maxTokens, alerts };
+  }
+}
+```
+
+**缓解策略**：为每个组件设定独立的 token 预算——推荐分配为 System 15%、History 40%、Tools 30%、Response 15%（参考 §5.3.6 的 Context Budget Allocator）。当任一组件达到 70% 预算时触发 L1+L2 压缩，达到 90% 时强制截断并记录告警日志。
+
+### 5.7.4 Stale Context（过期上下文）
+
+**定义**：上下文中包含已过时的信息——过时的工具缓存、失效的指令、不再成立的事实——导致 Agent 基于错误前提做出决策。
+
+**常见成因**：
+- **工具结果缓存未刷新**：天气、股价等实时数据的缓存 TTL 设置过长
+- **System Prompt 指令过期**：节假日促销规则未及时下线，Agent 仍在引导用户参与已结束的活动
+- **陈旧的记忆记录**：用户偏好已改变，但持久化的记忆仍记录旧偏好
+
+> **交叉参考**：§5.2 的 Context Rot 检测机制中，`detectStaleness()` 方法已实现了基于时间戳的过期检测。此处在其基础上构建更完整的新鲜度验证方案。
+
+```typescript
+// ===== Context Freshness Validator =====
+
+interface FreshnessRule {
+  sourceType: string;       // 上下文来源类型标识
+  maxAgeSec: number;        // 最大存活时间（秒）
+  refreshStrategy: "refetch" | "invalidate" | "flag";
+}
+
+interface StaleEntry {
+  source: string;
+  content: string;
+  ageSeconds: number;
+  maxAgeSec: number;
+  action: FreshnessRule["refreshStrategy"];
+}
+
+class ContextFreshnessValidator {
+  private rules: Map<string, FreshnessRule>;
+
+  constructor(rules: FreshnessRule[]) {
+    this.rules = new Map(rules.map(r => [r.sourceType, r]));
+  }
+
+  /**
+   * 扫描上下文中所有带时间戳的条目，标记过期内容
+   */
+  validate(
+    entries: Array<{ source: string; content: string; timestamp: number }>
+  ): StaleEntry[] {
+    const now = Date.now() / 1000;
+    const staleEntries: StaleEntry[] = [];
+
+    for (const entry of entries) {
+      const rule = this.rules.get(entry.source);
+      if (!rule) continue;
+
+      const age = now - entry.timestamp;
+      if (age > rule.maxAgeSec) {
+        staleEntries.push({
+          source: entry.source,
+          content: entry.content.slice(0, 80) + "...",
+          ageSeconds: Math.round(age),
+          maxAgeSec: rule.maxAgeSec,
+          action: rule.refreshStrategy,
+        });
+      }
+    }
+
+    return staleEntries;
+  }
+
+  /**
+   * 典型的 TTL 规则预设
+   */
+  static defaultRules(): FreshnessRule[] {
+    return [
+      { sourceType: "weather",        maxAgeSec: 1800,   refreshStrategy: "refetch" },    // 30 分钟
+      { sourceType: "stock_price",    maxAgeSec: 300,    refreshStrategy: "refetch" },    // 5 分钟
+      { sourceType: "web_search",     maxAgeSec: 86400,  refreshStrategy: "refetch" },    // 1 天
+      { sourceType: "user_memory",    maxAgeSec: 604800, refreshStrategy: "flag" },       // 7 天
+      { sourceType: "system_prompt",  maxAgeSec: 0,      refreshStrategy: "invalidate" }, // 每次验证
+    ];
+  }
+}
+```
+
+**缓解策略**：为每类上下文来源定义明确的 TTL 规则，在 Context Assembly Pipeline（参考 §5.5.2）中增加新鲜度校验环节——过期内容根据策略选择重新获取、标记告警或直接失效。对 System Prompt 采用版本化管理，每次会话启动时校验是否为最新版本。
+
+### 5.7.5 反模式检测清单
+
+下表提供一个快速参考清单，帮助团队在代码评审和上线检查中识别上下文工程的常见反模式：
+
+| 反模式 | 典型症状 | 检测方法 | 解决方案 |
+|--------|---------|---------|---------|
+| **Context Pollution** | 响应质量随工具调用增多而下降；无关信息出现在回复中 | `ContextPollutionDetector` 相关度评分；监控响应质量指标 | 选择性注入 + RRI 评分过滤 + 工具结果 L1 压缩 |
+| **Context Leakage** | 用户反馈看到其他人的信息；System Prompt 内容出现在回复中 | `ContextIsolationGuard` 边界校验；PII 扫描告警 | 命名空间隔离 + PII 脱敏 + 对抗性 Prompt 测试 |
+| **Token Budget Explosion** | API 调用频繁报 `context_length_exceeded`；响应突然被截断 | `TokenBudgetMonitor` 组件级预算监控；token 使用率趋势 | 组件级预算分配 + 渐进压缩 + 工具输出上限 |
+| **Stale Context** | Agent 引用已过时的信息做决策；用户投诉"记忆"不准确 | `ContextFreshnessValidator` TTL 校验；定期腐化扫描 | TTL 规则 + 版本化 System Prompt + 记忆定期刷新 |
+
+> **实践建议**：将上述四个检测器集成到 Context Assembly Pipeline 中，作为上下文注入前的"质量门禁"。任何未通过检测的上下文片段都不应进入最终的 LLM 调用，而是记录到可观测性系统中供事后分析。
 
 ---
 
-## 5.7 章节总结与最佳实践
+
+## 5.8 章节总结与最佳实践
 
 ### 核心框架回顾
 

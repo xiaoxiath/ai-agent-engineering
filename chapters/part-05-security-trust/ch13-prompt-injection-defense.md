@@ -6746,7 +6746,166 @@ class CIDefenseTestRunner {
 
 ---
 
-## 13.8 本章小结
+## 13.8 防御工具与平台生态
+
+在构建生产级 Prompt 注入防御体系时，"不要重复造轮子"是一条重要的工程原则。近两年，围绕 LLM 安全涌现了大量专业化的防御工具和平台，它们在检测精度、响应延迟和集成便利性上各有侧重。本节将对主流防御工具进行系统比较，并展示如何在生产环境中将多个工具编排为统一的防御层。
+
+### 13.8.1 主流防御工具对比
+
+下表汇总了当前生产环境中最常用的 Prompt 注入防御工具：
+
+| 工具 | 类型 | 核心能力 | 延迟 | 开源 |
+|------|------|----------|------|------|
+| Lakera Guard | API 服务 | Prompt injection 检测, PII 过滤 | <100ms | 否 |
+| NeMo Guardrails | 对话控制框架 | Colang DSL, 主题边界控制 | ~200ms | 是 |
+| Guardrails AI | 输出验证框架 | 验证器 Hub, 类型安全输出 | 变化 | 是 |
+| Rebuff | 自加固引擎 | 四层防御, 自学习黑名单 | ~300ms | 是 |
+| Prompt Shield | Azure 云服务 | Azure AI Content Safety 集成 | <150ms | 否 |
+
+**Lakera Guard** 是目前市场上最成熟的商业 Prompt 注入检测 API。它采用专门训练的分类器模型，对直接注入和间接注入均有较高的检测率（官方宣称 >99%），同时支持 PII（个人身份信息）检测与脱敏。其最大优势是超低延迟（<100ms），适合对响应速度有严格要求的实时对话场景。缺点是闭源商业服务，定价按调用量计费，且检测逻辑不透明。
+
+**NeMo Guardrails** 是 NVIDIA 开源的对话安全框架，其核心创新是 Colang DSL（一种专门用于定义对话安全规则的领域特定语言）。开发者可以用声明式语法定义主题边界（"Agent 不应讨论政治话题"）、交互模式（"在执行删除操作前必须确认"）和输出约束。Colang 的表达能力强于简单的关键词规则，但弱于完整的编程语言，在复杂场景下可能需要与代码逻辑配合使用。
+
+**Guardrails AI** 采用"验证器"（Validator）模式，提供了一个包含数十种预构建验证器的 Hub——从格式校验（JSON Schema、正则表达式）到语义检查（毒性检测、事实一致性）均有覆盖。其核心理念是"类型安全的 LLM 输出"：通过 RAIL 规范定义输出的期望格式，然后对模型输出进行多轮验证和自动修正。该工具更侧重输出端防御，与输入端检测工具互补性强。
+
+**Rebuff** 是一个独特的"自加固"（Self-Hardening）防御系统，采用四层检测架构：启发式规则层、LLM 判别层、向量相似度层和 Canary Token 层。它最具创新性的特点是自学习能力——每次检测到的攻击样本会自动加入向量数据库，使后续检测能力持续增强。适合需要长期运行并不断进化防御能力的场景，但初始部署时误报率可能较高。
+
+**Prompt Shield** 是微软 Azure AI Content Safety 平台的一部分，与 Azure OpenAI Service 深度集成。它基于微软内部安全团队的研究成果构建，支持对用户输入和外部文档的双重检测（即同时防御直接注入和间接注入）。对于已在 Azure 生态中运行的企业用户，Prompt Shield 提供了最低的集成成本，但对非 Azure 环境的可移植性较差。
+
+### 13.8.2 防御编排器：组合多层防御
+
+在实际生产中，单一工具很难覆盖所有攻击向量。更可靠的策略是将多个工具按照"快速预检 → 深度分析 → 输出验证"的流水线进行编排。以下是一个通用的防御编排器实现：
+
+```typescript
+// defense-orchestrator.ts —— 多工具防御编排器
+
+interface DefenseResult {
+  allowed: boolean;
+  risk: "none" | "low" | "medium" | "high" | "critical";
+  detections: Detection[];
+  latencyMs: number;
+}
+
+interface Detection {
+  tool: string;
+  category: string;
+  confidence: number;
+  detail: string;
+}
+
+interface DefenseLayer {
+  name: string;
+  priority: number; // 越小优先级越高
+  enabled: boolean;
+  /** 超时时间（ms），超时视为通过 */
+  timeoutMs: number;
+  /** 是否为阻断层：阻断层检测到威胁则立即拒绝，非阻断层仅记录 */
+  blocking: boolean;
+  check(input: string, context?: Record<string, unknown>): Promise<Detection[]>;
+}
+
+class DefenseOrchestrator {
+  private layers: DefenseLayer[] = [];
+  private metrics = { total: 0, blocked: 0, errors: 0 };
+
+  /** 注册防御层，按 priority 排序 */
+  register(layer: DefenseLayer): void {
+    this.layers.push(layer);
+    this.layers.sort((a, b) => a.priority - b.priority);
+  }
+
+  /** 执行全链路防御检查 */
+  async evaluate(
+    input: string,
+    context?: Record<string, unknown>
+  ): Promise<DefenseResult> {
+    const start = Date.now();
+    const allDetections: Detection[] = [];
+    let maxRisk: DefenseResult["risk"] = "none";
+
+    this.metrics.total++;
+
+    for (const layer of this.layers) {
+      if (!layer.enabled) continue;
+
+      try {
+        const detections = await Promise.race([
+          layer.check(input, context),
+          this.timeout(layer.timeoutMs),
+        ]);
+
+        allDetections.push(...detections);
+
+        // 根据检测结果更新风险等级
+        for (const d of detections) {
+          const risk = this.confidenceToRisk(d.confidence);
+          if (this.riskLevel(risk) > this.riskLevel(maxRisk)) {
+            maxRisk = risk;
+          }
+        }
+
+        // 阻断层检测到高风险则立即终止
+        if (
+          layer.blocking &&
+          this.riskLevel(maxRisk) >= this.riskLevel("high")
+        ) {
+          this.metrics.blocked++;
+          return {
+            allowed: false,
+            risk: maxRisk,
+            detections: allDetections,
+            latencyMs: Date.now() - start,
+          };
+        }
+      } catch (error) {
+        this.metrics.errors++;
+        // 防御层失败时采用 fail-open 还是 fail-close 取决于策略
+        console.warn(`Defense layer "${layer.name}" error:`, error);
+      }
+    }
+
+    const allowed = this.riskLevel(maxRisk) < this.riskLevel("high");
+    if (!allowed) this.metrics.blocked++;
+
+    return {
+      allowed,
+      risk: maxRisk,
+      detections: allDetections,
+      latencyMs: Date.now() - start,
+    };
+  }
+
+  private timeout(ms: number): Promise<Detection[]> {
+    return new Promise((resolve) => setTimeout(() => resolve([]), ms));
+  }
+
+  private confidenceToRisk(confidence: number): DefenseResult["risk"] {
+    if (confidence >= 0.95) return "critical";
+    if (confidence >= 0.8) return "high";
+    if (confidence >= 0.5) return "medium";
+    if (confidence >= 0.2) return "low";
+    return "none";
+  }
+
+  private riskLevel(risk: DefenseResult["risk"]): number {
+    const levels = { none: 0, low: 1, medium: 2, high: 3, critical: 4 };
+    return levels[risk];
+  }
+}
+```
+
+**编排策略说明：**
+
+1. **分层超时**：每个防御层独立设置超时，避免单一服务不可用拖垮整条链路。延迟敏感型服务（如 Lakera Guard）设置较短超时（100ms），深度分析服务（如 Rebuff）允许更长时间（500ms）。
+2. **阻断 vs. 观察**：`blocking: true` 的层（如输入净化、Prompt 检测）在高风险时立即拒绝；`blocking: false` 的层（如行为分析）仅记录供事后审计。
+3. **Fail-open vs. Fail-close**：防御层异常时的降级策略需根据业务场景决定——金融类 Agent 建议 fail-close（宁可拒绝服务也不放行风险请求），客服类 Agent 可 fail-open（记录异常但不影响用户体验）。
+4. **指标收集**：`metrics` 字段为生产监控提供关键数据，可接入 Prometheus 等监控系统，配合第 17 章的可观测性方案实现防御效果的实时看板。
+
+> **选型建议**：对于初创团队，推荐从 NeMo Guardrails（开源、对话控制）+ Guardrails AI（开源、输出验证）的组合起步，在业务规模增长后引入 Lakera Guard 或 Prompt Shield 补强输入端检测能力。对于已在 Azure 生态运行的企业，Prompt Shield + Guardrails AI 是集成成本最低的组合。
+
+---
+
+## 13.9 本章小结
 
 Prompt 注入是 AI Agent 系统面临的最独特也最具挑战性的安全威胁。它的独特性在于：攻击面不是传统的代码漏洞，而是语言模型"理解和遵循指令"这一核心能力本身。本章构建了从攻击理解到防御实施的完整体系，以下是核心要点：
 

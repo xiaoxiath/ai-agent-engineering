@@ -2382,11 +2382,259 @@ class HybridAgent {
 ```
 
 
+
+### 3.2.7 Delegation/Handoff 模式：控制权转移
+
+前面介绍的所有 Agent Loop 模式——从 Direct 到 Hybrid——都有一个共同特征：**控制权始终留在同一个 Agent 内部**。无论是 ReAct 的思考-行动循环还是 Plan-and-Execute 的规划-执行循环，驱动循环的始终是同一个 LLM 实例。但在真实的生产系统中，我们经常需要一种不同的控制流模式：**将循环本身转移给另一个 Agent**。
+
+这就是 **Delegation/Handoff 模式**的核心思想——它不是在循环内部增加一个步骤，而是将整个执行循环的控制权转移。
+
+#### 控制流的本质区别
+
+在第二章 2.3.5 节中，我们从理论角度定义了 Delegation 和 Handoff。这里我们关注其**控制流层面的工程含义**：
+
+- **Delegation**：当前 Agent 的循环**暂停**，启动目标 Agent 的循环来处理子任务，子任务完成后控制权**返回**原 Agent，原 Agent 继续自己的循环。这本质上是一次**同步调用**（或带回调的异步调用）。
+- **Handoff**：当前 Agent 的循环**终止**，目标 Agent 的循环**接管**整个会话。控制权**不会返回**。这本质上是一次**控制流跳转**（类似于尾调用优化中的 tail call）。
+
+这两种模式在 OpenAI Agents SDK 和 Anthropic 的多 Agent 架构中都有明确体现：
+
+- **OpenAI Agents SDK** 引入了 `Handoff` 原语，允许 Agent 声明式地定义"在什么条件下将对话转交给哪个 Agent"，并支持 `input_filter` 和 `output_filter` 来控制上下文传递。
+- **Anthropic 的 Orchestrator-Workers 模式**中，Orchestrator 实质上在对每个 Worker 执行 Delegation——将子任务分发给 Worker，等待结果汇总后继续。
+
+#### 完整实现
+
+以下 `DelegationHandler` 类实现了 Delegation 和 Handoff 的核心控制流逻辑：
+
+```typescript
+// ============================================================
+// 3.2.7 Delegation/Handoff 模式 -- 控制权转移
+// ============================================================
+
+/** Delegation 超时错误 */
+class DelegationTimeoutError extends Error {
+  constructor(
+    public delegationId: string,
+    public targetAgentId: string,
+    public timeoutMs: number
+  ) {
+    super(
+      `Delegation ${delegationId} to agent ${targetAgentId} ` +
+      `timed out after ${timeoutMs}ms`
+    );
+    this.name = 'DelegationTimeoutError';
+  }
+}
+
+/** Handoff 被拒绝错误（目标 Agent 拒绝接手） */
+class HandoffRejectedError extends Error {
+  constructor(
+    public handoffId: string,
+    public targetAgentId: string,
+    public reason: string
+  ) {
+    super(
+      `Handoff ${handoffId} rejected by agent ${targetAgentId}: ${reason}`
+    );
+    this.name = 'HandoffRejectedError';
+  }
+}
+
+/** Agent 的最小接口——任何可接受委派/移交的 Agent 需实现此接口 */
+interface DelegatableAgent {
+  agentId: string;
+  /** 接受一个 delegation 并执行 */
+  executeDelegation(
+    taskSpec: { description: string; input: unknown; constraints?: string[] },
+    context: { parentGoal: string; relevantHistory: Message[] }
+  ): Promise<{ status: 'success' | 'failure'; output?: unknown; error?: string }>;
+  /** 判断是否接受 handoff */
+  canAcceptHandoff(reason: string, sessionPreview: string): Promise<boolean>;
+  /** 接手整个会话 */
+  acceptHandoff(
+    sessionState: {
+      conversationHistory: Message[];
+      currentGoal: string;
+      userContext: Record<string, unknown>;
+    }
+  ): Promise<void>;
+}
+
+/**
+ * DelegationHandler -- 管理 Delegation 与 Handoff 的控制器
+ *
+ * 使用场景：
+ *   - Orchestrator Agent 将子任务委派给 Specialist Agent
+ *   - 通用 Agent 将超出能力的会话移交给专业 Agent
+ *   - 任何需要跨 Agent 控制权转移的场景
+ */
+class DelegationHandler {
+  private activeDelegations = new Map<string, {
+    targetAgentId: string;
+    startTime: number;
+    timeoutMs: number;
+  }>();
+
+  constructor(
+    private agentRegistry: Map<string, DelegatableAgent>,
+    private defaultTimeoutMs: number = 30_000
+  ) {}
+
+  /**
+   * Delegation：委派子任务给目标 Agent
+   * 当前 Agent 循环暂停，等待结果后继续
+   */
+  async delegate(
+    targetAgentId: string,
+    taskSpec: { description: string; input: unknown; constraints?: string[] },
+    context: { parentGoal: string; relevantHistory: Message[] },
+    options?: { timeoutMs?: number }
+  ): Promise<{ status: 'success' | 'failure'; output?: unknown; error?: string }> {
+    const targetAgent = this.agentRegistry.get(targetAgentId);
+    if (!targetAgent) {
+      throw new Error(`Agent ${targetAgentId} not found in registry`);
+    }
+
+    const delegationId = `del_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const timeoutMs = options?.timeoutMs ?? this.defaultTimeoutMs;
+
+    // 注册活跃委派（用于监控和取消）
+    this.activeDelegations.set(delegationId, {
+      targetAgentId,
+      startTime: Date.now(),
+      timeoutMs,
+    });
+
+    try {
+      // 带超时的委派执行
+      const result = await Promise.race([
+        targetAgent.executeDelegation(taskSpec, context),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new DelegationTimeoutError(delegationId, targetAgentId, timeoutMs)),
+            timeoutMs
+          )
+        ),
+      ]);
+
+      // 回调：通知委派完成
+      await this.onDelegationComplete(delegationId, result);
+      return result;
+
+    } catch (error) {
+      if (error instanceof DelegationTimeoutError) {
+        await this.onDelegationComplete(delegationId, {
+          status: 'failure',
+          error: error.message,
+        });
+        throw error;
+      }
+      // 其他未预期错误
+      const failResult = {
+        status: 'failure' as const,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      await this.onDelegationComplete(delegationId, failResult);
+      return failResult;
+    }
+  }
+
+  /**
+   * Handoff：将整个会话控制权移交给目标 Agent
+   * 当前 Agent 循环终止，目标 Agent 接管会话
+   */
+  async handoff(
+    targetAgentId: string,
+    sessionState: {
+      conversationHistory: Message[];
+      currentGoal: string;
+      userContext: Record<string, unknown>;
+    },
+    reason: string
+  ): Promise<{ handoffId: string; accepted: boolean }> {
+    const targetAgent = this.agentRegistry.get(targetAgentId);
+    if (!targetAgent) {
+      throw new Error(`Agent ${targetAgentId} not found in registry`);
+    }
+
+    const handoffId = `hof_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    // 1. 先确认目标 Agent 是否接受移交
+    const sessionPreview = sessionState.conversationHistory
+      .slice(-3)
+      .map(m => `${m.role}: ${typeof m.content === 'string' ? m.content.slice(0, 100) : '...'}`)
+      .join('\n');
+
+    const accepted = await targetAgent.canAcceptHandoff(reason, sessionPreview);
+
+    if (!accepted) {
+      throw new HandoffRejectedError(
+        handoffId,
+        targetAgentId,
+        'Target agent declined the handoff'
+      );
+    }
+
+    // 2. 执行移交——目标 Agent 接管会话
+    await targetAgent.acceptHandoff(sessionState);
+
+    // 3. 当前 Agent 的循环将在此之后终止
+    //    调用方应检查返回值并退出自己的 run loop
+    return { handoffId, accepted: true };
+  }
+
+  /**
+   * 委派完成回调——清理状态、记录指标
+   */
+  private async onDelegationComplete(
+    delegationId: string,
+    result: { status: string; output?: unknown; error?: string }
+  ): Promise<void> {
+    const delegation = this.activeDelegations.get(delegationId);
+    if (delegation) {
+      const durationMs = Date.now() - delegation.startTime;
+      console.log(
+        `[DelegationHandler] ${delegationId} completed: ` +
+        `status=${result.status}, duration=${durationMs}ms, ` +
+        `target=${delegation.targetAgentId}`
+      );
+      this.activeDelegations.delete(delegationId);
+    }
+  }
+}
+```
+
+#### 何时使用 Delegation vs Handoff
+
+选择 Delegation 还是 Handoff，取决于任务的**边界清晰度**和**领域专业性**：
+
+| 判断维度 | 选择 Delegation | 选择 Handoff |
+|---------|----------------|-------------|
+| 子任务边界 | 明确定义、输入输出可序列化 | 模糊、需要多轮交互探索 |
+| 领域专业性 | 当前 Agent 理解全局，只是需要帮手 | 目标 Agent 在该领域远优于当前 Agent |
+| 控制需求 | 需要对结果做后处理、汇总或验证 | 信任目标 Agent 全权处理 |
+| 会话连续性 | 用户不感知 Agent 切换 | 用户可感知且期望与专家对话 |
+| 错误恢复 | Delegator 可重试或降级 | 移交后原 Agent 无法干预 |
+
+**典型 Delegation 场景**：Orchestrator Agent 将"根据用户描述生成 SQL 查询"委派给 SQL 专家 Agent，拿到结果后继续执行查询并格式化输出。
+
+**典型 Handoff 场景**：电商客服 Agent 识别到用户要求退款且情绪激动，将会话移交给专业的退款处理 Agent（该 Agent 拥有退款权限和话术模板）。
+
+#### 与其他模式的关系
+
+Delegation/Handoff 并非独立存在——它通常与其他 Agent Loop 模式**组合使用**：
+
+- **Hybrid + Delegation**：Hybrid Agent 的 Planner 生成计划后，将某些步骤 delegate 给专业 Agent 执行，而非全部由内置 ReAct 执行器处理。
+- **ReAct + Handoff**：ReAct Agent 在 Thought 阶段判断当前任务超出自身能力，触发 Handoff 将会话转交。
+- **Orchestrator-Workers 即 Delegation**：第二章讨论的 Orchestrator-Workers 模式本质上就是结构化的多重 Delegation——Orchestrator 将任务分解后，对每个 Worker 执行一次 Delegation。
+
+> **更新的模式对比**：在 3.2.5 节的模式对比表基础上，Delegation/Handoff 模式的关键特征为——延迟取决于目标 Agent（可变），Token 成本包含上下文传递开销（中等偏高），可靠性取决于目标 Agent 质量与回退策略（中到高），可解释性较高（委派链可追踪），最佳场景为跨领域专业协作，最差场景为简单任务（委派开销大于收益）。
 ---
 
 ## 3.3 状态管理基础
 
 Agent 系统的状态管理是一个被严重低估的工程挑战。一个正在执行的 Agent 包含大量的运行时状态：当前执行到哪一步、已经调用了哪些工具、累计消耗了多少 Token、当前的计划是什么、是否遇到了错误等。如何组织和管理这些状态，直接影响系统的可测试性、可调试性和可恢复性。
+
+> **编辑说明**：本节提供状态管理的架构概览，帮助读者理解 Agent 状态的核心概念和 Event Sourcing + Reducer 模式的基本思路。关于 Reducer 中间件、状态转换守卫（`assertTransition`）、检查点与时间旅行调试、分布式同步等深入工程实现，请参阅**第 4 章**。
 
 ### 3.3.1 为什么需要不可变状态
 
@@ -2412,7 +2660,7 @@ Reducer:  state = events.reduce(reducer, initialState)
 当前状态:  { phase: ..., messages: [...], metrics: { ... } }
 ```
 
-以下是完整实现，覆盖了 12 种事件类型：
+以下是核心类型定义和 Reducer 模式的简化实现，展示 TASK_STARTED 和 LLM_CALL_END 两个代表性事件的处理逻辑。完整的 12 种事件处理、状态转换守卫和中间件机制，请参阅第 4 章 §4.2。
 
 ```typescript
 // ============================================================
@@ -2583,105 +2831,15 @@ function agentReducer(state: AgentState, event: AgentEvent): AgentState {
         },
       };
 
-    case 'LLM_CALL_ERROR':
-      return {
-        ...base,
-        phase: 'error',
-        error: `LLM Error: ${event.error}`,
-        metadata: { ...state.metadata, llmCallPending: false },
-      };
-
-    case 'TOOL_CALL_START': {
-      const newToolCall: ToolCall = {
-        id: event.callId,
-        name: event.toolName,
-        input: event.input,
-        startedAt: event.timestamp,
-      };
-      return {
-        ...base,
-        phase: 'acting',
-        toolCalls: [...state.toolCalls, newToolCall],
-        metrics: {
-          ...state.metrics,
-          totalToolCalls: state.metrics.totalToolCalls + 1,
-        },
-      };
-    }
-
-    case 'TOOL_CALL_END': {
-      const toolCalls = state.toolCalls.map((tc) =>
-        tc.id === event.callId
-          ? { ...tc, output: event.output, completedAt: event.timestamp, durationMs: event.durationMs }
-          : tc
-      );
-      return {
-        ...base,
-        toolCalls,
-        metrics: {
-          ...state.metrics,
-          totalDurationMs: state.metrics.totalDurationMs + event.durationMs,
-          toolLatencyMs: [...state.metrics.toolLatencyMs, event.durationMs],
-        },
-      };
-    }
-
-    case 'TOOL_CALL_ERROR': {
-      const toolCalls = state.toolCalls.map((tc) =>
-        tc.id === event.callId
-          ? { ...tc, error: event.error, completedAt: event.timestamp }
-          : tc
-      );
-      return { ...base, toolCalls, error: event.error };
-    }
-
-    case 'HUMAN_FEEDBACK':
-      return {
-        ...base,
-        phase: event.approved ? 'acting' : 'thinking',
-        messages: [
-          ...state.messages,
-          { role: 'user', content: `[Feedback] ${event.feedback}`, timestamp: event.timestamp },
-        ],
-      };
-
-    case 'STEP_COMPLETED':
-      return {
-        ...base,
-        currentStep: state.currentStep + 1,
-        phase: state.currentStep + 1 >= state.maxSteps ? 'done' : 'thinking',
-      };
-
-    case 'TASK_COMPLETED':
-      return {
-        ...base,
-        phase: 'done',
-        messages: [
-          ...state.messages,
-          { role: 'assistant', content: event.summary, timestamp: event.timestamp },
-        ],
-      };
-
-    case 'ERROR_OCCURRED':
-      return {
-        ...base,
-        phase: event.recoverable ? state.phase : 'error',
-        error: event.error,
-      };
-
-    case 'STATE_RESET': {
-      const now = event.timestamp;
-      return {
-        ...INITIAL_STATE,
-        id: state.id,          // 保留同一 Agent 标识
-        createdAt: state.createdAt,
-        updatedAt: now,
-        version: state.version + 1,
-      };
-    }
+    // ----------------------------------------------------------
+    // 其余 10 种事件（LLM_CALL_ERROR、TOOL_CALL_START/END/ERROR、
+    // HUMAN_FEEDBACK、STEP_COMPLETED、TASK_COMPLETED、
+    // ERROR_OCCURRED、STATE_RESET 及 default 分支）遵循相同的
+    // 纯函数模式：基于 event.type 分派，返回展开后的新状态对象。
+    // 完整实现请参阅第 4 章 §4.2.3。
+    // ----------------------------------------------------------
 
     default:
-      console.warn(`[Reducer] 未知事件类型: ${(event as any).type}`);
       return state;
   }
 }

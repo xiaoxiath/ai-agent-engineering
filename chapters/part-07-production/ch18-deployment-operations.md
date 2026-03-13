@@ -8215,13 +8215,495 @@ export class ProductionReadinessChecker {
 }
 ```
 
+## 18.9 Serverless Agent 部署模式
+
+Serverless 架构以其按需付费、零运维的特性吸引了大量团队，但 AI Agent 的执行特征——多轮推理、长时间运行、有状态交互——与 Serverless 的设计假设存在根本性张力。本节深入分析这些挑战，并提供经过生产验证的架构模式。
+
+### 18.9.1 五大核心挑战
+
+将 Agent 部署到 Serverless 环境面临以下关键挑战：
+
+| 挑战 | 影响 | Lambda/Cloud Functions 限制 |
+|------|------|---------------------------|
+| 执行时限 | Agent 多轮推理需要 5-15 分钟 | Lambda 15min, Cloud Functions 9min |
+| 冷启动 | 模型客户端初始化慢 | 1-5s 首次启动延迟 |
+| 无状态 | Agent 需要跨调用保持状态 | 函数实例间无共享内存 |
+| 载荷限制 | LLM 响应可能很大 | 6MB 同步 / 256KB 异步 |
+| 并发控制 | 工具并行调用 | 默认 1000 并发 |
+
+执行时限是最严峻的约束。一个典型的 ReAct Agent 执行 5 轮迭代，每轮包含一次 LLM 调用（2-10 秒）和一次工具调用（1-30 秒），总耗时轻松超过 1 分钟，复杂任务可达 10 分钟以上。冷启动问题在 Agent 场景中尤为突出——初始化 OpenAI SDK、加载 Prompt 模板、建立数据库连接等操作叠加后，首次调用延迟可达 3-5 秒。
+
+### 18.9.2 架构模式
+
+针对上述挑战，业界发展出四种主流架构模式：
+
+**模式一：Step Functions / Workflows 编排。** 将 Agent Loop 分解为状态机，每个步骤（LLM 调用、工具执行、决策判断）作为独立的 Lambda 函数。状态在步骤间通过 Step Functions 的内置状态传递。这种模式彻底解决了执行时限问题——每个步骤只需几十秒，而整个工作流可以运行长达一年。
+
+**模式二：Streaming 流式响应。** 使用 Lambda Response Streaming 或 WebSocket API Gateway 绕过同步超时限制。客户端建立长连接，Agent 的每一步推理结果实时推送，避免了 29 秒 API Gateway 超时。
+
+**模式三：外部状态存储。** 使用 DynamoDB 或 Redis 存储 Agent 的对话历史、工具执行状态和中间推理结果。每次函数调用时加载状态，执行后持久化，实现跨调用的状态连续性。
+
+**模式四：混合部署。** 短任务（意图分类、简单问答）走 Serverless 路径享受弹性和成本优势；长任务（多轮推理、复杂编排）路由到 ECS/Fargate 长运行容器。通过任务复杂度预估实现智能路由。
+
+### 18.9.3 Serverless Agent 实现
+
+以下是一个结合外部状态管理和 Step Functions 编排思路的 Lambda 兼容 Agent 处理器：
+
+```typescript
+// ============================================================
+// Serverless Agent Handler — Lambda 兼容的 Agent 执行器
+// ============================================================
+
+/** Agent 执行状态，持久化到外部存储 */
+interface AgentExecutionState {
+  sessionId: string;
+  taskId: string;
+  iteration: number;
+  maxIterations: number;
+  conversationHistory: Array<{ role: string; content: string }>;
+  pendingToolCalls: Array<{ toolName: string; args: Record<string, unknown> }>;
+  intermediateResults: Array<{ step: number; result: unknown }>;
+  status: "running" | "completed" | "failed" | "timeout";
+  createdAt: number;
+  updatedAt: number;
+  ttlExpiry: number;
+}
+
+/** Lambda 事件结构 */
+interface AgentLambdaEvent {
+  action: "start" | "continue" | "resume_tool";
+  sessionId?: string;
+  taskId: string;
+  input?: string;
+  toolResult?: { toolName: string; output: unknown; success: boolean };
+}
+
+/** Lambda 响应结构 */
+interface AgentLambdaResponse {
+  statusCode: number;
+  body: {
+    sessionId: string;
+    status: AgentExecutionState["status"];
+    output?: string;
+    nextAction?: "wait_tool" | "continue" | "done";
+    pendingTools?: Array<{ toolName: string; args: Record<string, unknown> }>;
+    iterationsUsed: number;
+  };
+}
+
+/**
+ * ServerlessAgentHandler
+ *
+ * 核心设计思路：
+ * 1. 每次 Lambda 调用执行 Agent Loop 的一个"段落"（1-3 轮迭代）
+ * 2. 状态持久化到 DynamoDB，支持跨调用恢复
+ * 3. 遇到长时间工具调用时返回 "wait_tool"，由 Step Functions 异步编排
+ * 4. 内置超时保护，在 Lambda 剩余时间不足时主动暂停
+ */
+class ServerlessAgentHandler {
+  private readonly stateStore: ExternalStateStore;
+  private readonly llmClient: LLMClient;
+  private readonly toolRegistry: ToolRegistry;
+  private readonly maxIterationsPerInvocation = 3;
+  private readonly safetyMarginMs = 30_000; // Lambda 超时前 30s 主动暂停
+
+  constructor(config: {
+    stateTableName: string;
+    llmProvider: string;
+    model: string;
+  }) {
+    this.stateStore = new ExternalStateStore(config.stateTableName);
+    this.llmClient = new LLMClient(config.llmProvider, config.model);
+    this.toolRegistry = new ToolRegistry();
+  }
+
+  /**
+   * Lambda Handler 入口
+   */
+  async handle(
+    event: AgentLambdaEvent,
+    context: { getRemainingTimeInMillis: () => number }
+  ): Promise<AgentLambdaResponse> {
+    let state: AgentExecutionState;
+
+    if (event.action === "start") {
+      // 新建执行状态
+      state = await this.initializeState(event);
+    } else {
+      // 恢复已有状态
+      state = await this.stateStore.load(event.sessionId!);
+      if (!state) {
+        return this.errorResponse(404, "Session not found");
+      }
+    }
+
+    // 如果是工具结果回传，先合并结果
+    if (event.action === "resume_tool" && event.toolResult) {
+      state.conversationHistory.push({
+        role: "tool",
+        content: JSON.stringify(event.toolResult),
+      });
+      state.pendingToolCalls = [];
+    }
+
+    // 执行 Agent Loop（受限迭代次数）
+    const result = await this.executeAgentLoop(state, context);
+
+    // 持久化状态
+    state.updatedAt = Date.now();
+    await this.stateStore.save(state);
+
+    return {
+      statusCode: 200,
+      body: {
+        sessionId: state.sessionId,
+        status: state.status,
+        output: result.output,
+        nextAction: result.nextAction,
+        pendingTools: state.pendingToolCalls.length > 0
+          ? state.pendingToolCalls
+          : undefined,
+        iterationsUsed: state.iteration,
+      },
+    };
+  }
+
+  /**
+   * 受限的 Agent Loop 执行
+   * 每次调用最多执行 maxIterationsPerInvocation 轮
+   * 遇到 Lambda 超时边界时主动暂停
+   */
+  private async executeAgentLoop(
+    state: AgentExecutionState,
+    context: { getRemainingTimeInMillis: () => number }
+  ): Promise<{ output?: string; nextAction: "wait_tool" | "continue" | "done" }> {
+    let iterationsThisInvocation = 0;
+
+    while (
+      iterationsThisInvocation < this.maxIterationsPerInvocation &&
+      state.iteration < state.maxIterations &&
+      state.status === "running"
+    ) {
+      // 超时保护：检查 Lambda 剩余执行时间
+      if (context.getRemainingTimeInMillis() < this.safetyMarginMs) {
+        // 主动暂停，返回 continue 让 Step Functions 触发下一次调用
+        await this.stateStore.save(state);
+        return { nextAction: "continue" };
+      }
+
+      state.iteration++;
+      iterationsThisInvocation++;
+
+      // LLM 推理
+      const llmResponse = await this.llmClient.chat(state.conversationHistory);
+
+      // 解析 LLM 决策
+      const decision = this.parseDecision(llmResponse);
+
+      if (decision.type === "final_answer") {
+        state.status = "completed";
+        state.conversationHistory.push({
+          role: "assistant",
+          content: decision.content,
+        });
+        return { output: decision.content, nextAction: "done" };
+      }
+
+      if (decision.type === "tool_call") {
+        // 检查工具是否可以在 Lambda 内同步执行
+        const tool = this.toolRegistry.get(decision.toolName);
+        if (tool && tool.estimatedDurationMs < 10_000) {
+          // 短时工具：同步执行
+          const toolResult = await tool.execute(decision.args);
+          state.conversationHistory.push(
+            { role: "assistant", content: llmResponse.content },
+            { role: "tool", content: JSON.stringify(toolResult) }
+          );
+          state.intermediateResults.push({
+            step: state.iteration,
+            result: toolResult,
+          });
+        } else {
+          // 长时工具：暂停，交由外部编排
+          state.pendingToolCalls.push({
+            toolName: decision.toolName,
+            args: decision.args,
+          });
+          state.conversationHistory.push({
+            role: "assistant",
+            content: llmResponse.content,
+          });
+          return { nextAction: "wait_tool" };
+        }
+      }
+    }
+
+    if (state.iteration >= state.maxIterations) {
+      state.status = "completed";
+      return { output: "达到最大迭代次数限制", nextAction: "done" };
+    }
+
+    return { nextAction: "continue" };
+  }
+
+  private async initializeState(
+    event: AgentLambdaEvent
+  ): Promise<AgentExecutionState> {
+    const sessionId = `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const state: AgentExecutionState = {
+      sessionId,
+      taskId: event.taskId,
+      iteration: 0,
+      maxIterations: 15,
+      conversationHistory: [
+        { role: "system", content: "You are a helpful AI agent." },
+        { role: "user", content: event.input ?? "" },
+      ],
+      pendingToolCalls: [],
+      intermediateResults: [],
+      status: "running",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      ttlExpiry: Date.now() + 24 * 60 * 60 * 1000, // 24h TTL
+    };
+    await this.stateStore.save(state);
+    return state;
+  }
+
+  private parseDecision(response: {
+    content: string;
+  }): { type: "final_answer" | "tool_call"; content: string; toolName: string; args: Record<string, unknown> } {
+    // 简化的决策解析逻辑
+    try {
+      const parsed = JSON.parse(response.content);
+      if (parsed.tool) {
+        return { type: "tool_call", content: response.content, toolName: parsed.tool, args: parsed.args ?? {} };
+      }
+    } catch { /* not JSON, treat as final answer */ }
+    return { type: "final_answer", content: response.content, toolName: "", args: {} };
+  }
+
+  private errorResponse(statusCode: number, message: string): AgentLambdaResponse {
+    return { statusCode, body: { sessionId: "", status: "failed", iterationsUsed: 0, output: message, nextAction: "done" } };
+  }
+}
+
+// 占位类型——实际项目中替换为真实实现
+declare class ExternalStateStore {
+  constructor(tableName: string);
+  load(sessionId: string): Promise<AgentExecutionState>;
+  save(state: AgentExecutionState): Promise<void>;
+}
+declare class LLMClient {
+  constructor(provider: string, model: string);
+  chat(messages: Array<{ role: string; content: string }>): Promise<{ content: string }>;
+}
+declare class ToolRegistry {
+  get(name: string): { estimatedDurationMs: number; execute(args: Record<string, unknown>): Promise<unknown> } | undefined;
+}
+```
+
+该实现的关键设计要点：`safetyMarginMs` 确保在 Lambda 超时前 30 秒主动暂停并持久化状态，避免执行中断导致的数据丢失；`maxIterationsPerInvocation` 限制单次调用的迭代次数，配合 Step Functions 实现跨调用的长流程编排；工具调用根据预估耗时分为同步执行和异步编排两条路径，短时工具直接在 Lambda 内完成，长时工具交由外部工作流处理后通过 `resume_tool` 动作回传结果。
+
 ---
 
-## 18.9 本章小结
+## 18.10 Edge-Cloud 协同部署架构
 
-本章系统地探讨了 AI Agent 系统从实验室到生产环境的部署架构与运维实践。以下是十条核心要点：
+随着 AI Agent 向移动端和 IoT 设备渗透，纯云端部署模式面临延迟敏感、隐私合规和离线可用性三重挑战。Edge-Cloud 协同架构通过在设备端运行小模型处理简单任务，将复杂任务路由到云端大模型，在响应速度、数据隐私和推理能力之间取得平衡。
 
-### 十大核心要点
+### 18.10.1 分层架构
+
+Edge-Cloud Agent 系统分为三个协作层次：
+
+**Edge 层（设备端）。** 运行 1-7B 参数的量化模型（如 Phi-3-mini、Gemma-2B），负责意图分类、简单槽位填充、基础工具调用和离线应急响应。Edge 层的核心价值在于：本地推理延迟低于 200ms，用户敏感数据无需离开设备，网络断开时仍可提供基础能力。
+
+**Cloud 层（云端）。** 运行完整规模的大模型（GPT-4、Claude、Gemini Pro），负责复杂的多步推理、多工具编排、知识库检索和长文本生成。Cloud 层拥有充足的计算资源和完整的工具生态，是系统推理能力的上限。
+
+**协调层（路由决策）。** 运行在 Edge 端的轻量级路由器，根据任务复杂度、延迟要求、隐私级别和网络状况，实时决定每个请求由 Edge 还是 Cloud 处理。协调层是整个架构的核心——路由决策的准确性直接决定了用户体验和系统效率。
+
+### 18.10.2 决策路由实现
+
+以下是 Edge-Cloud 路由器的 TypeScript 实现，展示了基于多维信号的智能任务分发：
+
+```typescript
+// ============================================================
+// Edge-Cloud Router — 边缘-云端智能路由器
+// ============================================================
+
+/** 路由决策结果 */
+interface RoutingDecision {
+  target: "edge" | "cloud";
+  reason: string;
+  confidence: number;
+  fallbackTarget?: "edge" | "cloud";
+}
+
+/** 任务特征分析结果 */
+interface TaskProfile {
+  estimatedComplexity: "low" | "medium" | "high";
+  requiresTools: string[];
+  privacySensitive: boolean;
+  latencyBudgetMs: number;
+  inputTokenEstimate: number;
+  requiresLongContext: boolean;
+}
+
+/** 网络和设备状态 */
+interface DeviceContext {
+  networkType: "wifi" | "cellular" | "offline";
+  networkLatencyMs: number;
+  batteryLevel: number;
+  availableMemoryMB: number;
+  edgeModelLoaded: boolean;
+}
+
+/**
+ * EdgeCloudRouter
+ *
+ * 路由策略优先级：
+ * 1. 硬约束：离线 → 强制 Edge；需要云端专属工具 → 强制 Cloud
+ * 2. 隐私约束：敏感数据 → 优先 Edge
+ * 3. 能力约束：高复杂度/长上下文 → Cloud
+ * 4. 性能优化：在满足质量的前提下优先低延迟路径
+ */
+class EdgeCloudRouter {
+  private readonly edgeCapableTools: Set<string>;
+  private readonly complexityThreshold: number;
+  private readonly maxEdgeInputTokens: number;
+
+  constructor(config: {
+    edgeCapableTools: string[];
+    complexityThreshold?: number;
+    maxEdgeInputTokens?: number;
+  }) {
+    this.edgeCapableTools = new Set(config.edgeCapableTools);
+    this.complexityThreshold = config.complexityThreshold ?? 0.6;
+    this.maxEdgeInputTokens = config.maxEdgeInputTokens ?? 2048;
+  }
+
+  /**
+   * 路由决策入口
+   */
+  route(task: TaskProfile, device: DeviceContext): RoutingDecision {
+    // 硬约束 1：离线时只能走 Edge
+    if (device.networkType === "offline") {
+      return {
+        target: "edge",
+        reason: "offline_forced",
+        confidence: 1.0,
+      };
+    }
+
+    // 硬约束 2：需要云端专属工具时必须走 Cloud
+    const cloudOnlyTools = task.requiresTools.filter(
+      (t) => !this.edgeCapableTools.has(t)
+    );
+    if (cloudOnlyTools.length > 0) {
+      return {
+        target: "cloud",
+        reason: `requires_cloud_tools: ${cloudOnlyTools.join(", ")}`,
+        confidence: 1.0,
+        fallbackTarget: "edge",
+      };
+    }
+
+    // 隐私约束：敏感数据优先本地处理
+    if (task.privacySensitive) {
+      if (task.estimatedComplexity === "high") {
+        // 高复杂度 + 隐私敏感：Edge 预处理脱敏后发送 Cloud
+        return {
+          target: "cloud",
+          reason: "privacy_sensitive_but_complex_needs_cloud_with_sanitization",
+          confidence: 0.7,
+          fallbackTarget: "edge",
+        };
+      }
+      return {
+        target: "edge",
+        reason: "privacy_sensitive_local_processing",
+        confidence: 0.9,
+      };
+    }
+
+    // 能力约束：Edge 模型能力边界判断
+    if (
+      task.estimatedComplexity === "high" ||
+      task.requiresLongContext ||
+      task.inputTokenEstimate > this.maxEdgeInputTokens
+    ) {
+      return {
+        target: "cloud",
+        reason: "exceeds_edge_capability",
+        confidence: 0.85,
+        fallbackTarget: "edge",
+      };
+    }
+
+    // 性能优化：综合延迟和资源评估
+    const edgeLatencyMs = this.estimateEdgeLatency(task, device);
+    const cloudLatencyMs = device.networkLatencyMs * 2 + this.estimateCloudInferenceMs(task);
+
+    if (edgeLatencyMs < task.latencyBudgetMs && edgeLatencyMs < cloudLatencyMs) {
+      return {
+        target: "edge",
+        reason: `edge_faster: ${edgeLatencyMs}ms vs cloud ${cloudLatencyMs}ms`,
+        confidence: 0.8,
+        fallbackTarget: "cloud",
+      };
+    }
+
+    // 默认走 Cloud 以保证质量
+    return {
+      target: "cloud",
+      reason: "default_cloud_for_quality",
+      confidence: 0.75,
+      fallbackTarget: "edge",
+    };
+  }
+
+  /**
+   * 估算 Edge 端推理延迟
+   */
+  private estimateEdgeLatency(task: TaskProfile, device: DeviceContext): number {
+    const baseLatencyMs = device.edgeModelLoaded ? 50 : 2000; // 冷启动惩罚
+    const tokensPerSecond = device.availableMemoryMB > 4096 ? 30 : 15;
+    const inferenceMs = (task.inputTokenEstimate / tokensPerSecond) * 1000;
+    return baseLatencyMs + inferenceMs;
+  }
+
+  /**
+   * 估算 Cloud 端推理延迟（不含网络）
+   */
+  private estimateCloudInferenceMs(task: TaskProfile): number {
+    const baseMsByComplexity = {
+      low: 500,
+      medium: 1500,
+      high: 4000,
+    };
+    return baseMsByComplexity[task.estimatedComplexity];
+  }
+}
+```
+
+### 18.10.3 关键挑战与应对策略
+
+Edge-Cloud 协同部署在工程实践中面临四个核心挑战：
+
+**模型同步。** Edge 端模型需要定期更新以保持与 Cloud 端的能力对齐。推荐采用差量更新（delta update）策略——仅下载模型权重的变化部分，通过 Wi-Fi 连接时后台静默更新，避免消耗用户的蜂窝流量。版本管理上，Edge 和 Cloud 模型应使用统一的 Prompt 模板版本号，确保行为一致性。
+
+**上下文交接。** 当请求从 Edge 路由到 Cloud 时，需要传递完整的对话上下文。关键问题是 Edge 模型的内部表示（hidden states）与 Cloud 模型不兼容，因此只能传递文本级别的对话历史。为减少传输量，建议实现对话摘要压缩——将多轮对话压缩为结构化摘要后再发送到 Cloud 端。
+
+**带宽约束。** 蜂窝网络下的上行带宽通常有限（1-5 Mbps），传输大量上下文会显著增加延迟。应对策略包括：请求压缩（gzip）、上下文裁剪（只传最近 N 轮）、以及渐进式传输（先发关键信息，Cloud 端开始推理后再补充完整上下文）。
+
+**一致性保证。** 同一用户的连续请求可能分别由 Edge 和 Cloud 处理，导致行为不一致。缓解方案是维护统一的会话状态存储，无论哪一端处理请求都读写同一份状态，并在路由决策时考虑会话连续性——尽量让同一会话的请求由同一端处理，除非能力约束要求切换。
+
+---
+
+## 18.11 本章小结
+
+本章系统地探讨了 AI Agent 系统从实验室到生产环境的部署架构与运维实践。以下是十二条核心要点：
+
+### 十二大核心要点
 
 **1. Kubernetes 原生部署是 Agent 系统的首选架构**
 
@@ -8262,6 +8744,14 @@ Agent 工作负载需要精细的资源管理、弹性伸缩和服务发现。Ku
 **10. 上线前的全面检查是质量的最后防线**
 
 `ProductionReadinessChecker` 涵盖安全性、性能、可观测性、可靠性、灾备、成本、合规和运维八大维度的检查项。任何关键检查未通过都应该阻止上线——这是避免生产事故的最有效手段。
+
+**11. Serverless 部署需要架构适配而非简单迁移**
+
+Agent 的多轮推理特性与 Serverless 的短生命周期假设存在根本张力。通过 Step Functions 编排将 Agent Loop 分解为状态机步骤、使用外部状态存储（DynamoDB/Redis）实现跨调用连续性、以及基于任务复杂度的混合部署路由，可以在享受 Serverless 弹性优势的同时规避其局限。
+
+**12. Edge-Cloud 协同是 Agent 走向端侧的必经之路**
+
+在移动端和 IoT 场景中，Edge-Cloud 协同架构通过在设备端运行小模型处理简单任务、将复杂任务路由到云端，实现延迟、隐私和能力的最优平衡。`EdgeCloudRouter` 基于任务复杂度、隐私敏感度、网络状况等多维信号做出实时路由决策，是该架构的核心组件。
 
 ### 下一章预告
 

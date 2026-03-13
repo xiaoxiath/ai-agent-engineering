@@ -203,5 +203,5 @@ server.prompt('summarize', { text: z.string() }, ({ text }) => ({
 | Multi-Agent | 原生 | 手动 | 原生 | Handoff |
 | 状态管理 | Session | Checkpoint | 隐式 | 隐式 |
 | 生产就绪 | 中 | 高 | 低 | 中 |
-| MCP 支持 | 原生 | 社区 | 无 | 无 |
+| MCP 支持 | 原生 | 社区 | 社区 | 原生 |
 | 最佳场景 | Google 生态 | 复杂工作流 | 快速原型 | OpenAI 生态 |

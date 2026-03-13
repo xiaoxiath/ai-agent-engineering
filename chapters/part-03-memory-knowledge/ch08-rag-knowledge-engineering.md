@@ -3147,6 +3147,292 @@ ${finalContext}`;
 }
 ```
 
+### 8.6.4 Agentic RAG：自主检索与推理
+
+前面介绍的 Corrective RAG、Self-RAG 和 Adaptive RAG 都在检索管线的某个环节引入了"判断"能力。2025 年最重要的演进是把这些零散的判断统一交给一个 **AI Agent**，让它自主决定检索的全部策略——这就是 **Agentic RAG**。
+
+> **核心定义** Agentic RAG = 由 AI Agent 自主驱动的 RAG 管线。Agent 负责四个决策：
+> - **WHEN**：是否需要检索（不是每个查询都需要外部知识）
+> - **WHAT**：检索什么（查询改写、查询分解）
+> - **WHERE**：从哪里检索（跨多个知识源的动态路由）
+> - **HOW**：如何组合结果（迭代精炼、交叉验证）
+
+#### 与其他 RAG 模式的对比
+
+| 特性 | Naive RAG | Corrective RAG | Self-RAG | Agentic RAG |
+|------|-----------|---------------|---------|------------|
+| 检索决策 | 始终检索 | 始终检索 | 自判断 | 自主决策 |
+| 检索轮次 | 单轮 | 单轮+修正 | 多轮 | 多轮+迭代 |
+| 来源选择 | 固定 | 固定 | 固定 | 动态路由 |
+| 结果评估 | 无 | 有 | 有 | 有+反思 |
+| 查询理解 | 原始透传 | 原始透传 | 改写 | 分解+改写+路由 |
+| 适用复杂度 | 简单事实 | 简单事实 | 中等推理 | 复杂多跳推理 |
+
+关键区别在于：Agentic RAG 不再把检索当作管线中的固定步骤，而是当作 Agent 工具箱中的一组工具，由 Agent 根据推理需要自主调用。
+
+#### 架构实现
+
+```typescript
+// ============================================================
+// Agentic RAG Engine: Agent 自主驱动的检索与推理
+// ============================================================
+
+interface KnowledgeSource {
+  name: string;
+  type: "vector_db" | "sql_db" | "api" | "web_search" | "knowledge_graph";
+  description: string;                    // Agent 用来决策路由的描述
+  query: (q: string) => Promise<RetrievalResult[]>;
+}
+
+interface RetrievalDecision {
+  shouldRetrieve: boolean;
+  reason: string;
+  confidence: number;
+}
+
+interface SubQuery {
+  text: string;
+  intent: string;
+  targetSources: string[];               // 推荐的知识源名称
+}
+
+interface EvaluationResult {
+  score: number;                          // 0-1，结果充分度
+  gaps: string[];                         // 缺失的信息
+  suggestions: string[];                  // 下一步检索建议
+}
+
+class AgenticRAGEngine {
+  private sources: Map<string, KnowledgeSource> = new Map();
+  private llm: LLMClient;
+  private tokenBudget: number;
+  private tokensUsed: number = 0;
+
+  constructor(
+    llm: LLMClient,
+    sources: KnowledgeSource[],
+    tokenBudget: number = 8000           // 控制检索成本
+  ) {
+    this.llm = llm;
+    this.tokenBudget = tokenBudget;
+    for (const source of sources) {
+      this.sources.set(source.name, source);
+    }
+  }
+
+  // ---- 决策 1: WHEN — 是否需要检索 ----
+  async shouldRetrieve(
+    query: string,
+    conversationContext: string
+  ): Promise<RetrievalDecision> {
+    const prompt = `你是一个检索决策器。判断以下查询是否需要外部知识检索。
+
+查询: ${query}
+对话上下文: ${conversationContext}
+
+不需要检索的情况:
+- 简单的问候、闲聊
+- LLM 自身知识可以可靠回答的通识问题
+- 上下文中已经包含充分信息
+
+需要检索的情况:
+- 涉及特定领域的专业知识
+- 需要最新信息或实时数据
+- 上下文信息不充分
+
+返回 JSON: { "shouldRetrieve": boolean, "reason": string, "confidence": number }`;
+
+    const response = await this.llm.generate(prompt, "");
+    return JSON.parse(response);
+  }
+
+  // ---- 决策 2: WHAT — 查询分解 ----
+  async decomposeQuery(query: string): Promise<SubQuery[]> {
+    const sourceDescriptions = Array.from(this.sources.entries())
+      .map(([name, s]) => `- ${name} (${s.type}): ${s.description}`)
+      .join("\n");
+
+    const prompt = `将以下复杂查询分解为可独立检索的子查询。
+
+原始查询: ${query}
+
+可用知识源:
+${sourceDescriptions}
+
+要求:
+1. 每个子查询应聚焦于一个信息需求
+2. 为每个子查询推荐最合适的知识源
+3. 简单查询无需分解，直接返回原始查询
+
+返回 JSON 数组: [{ "text": string, "intent": string, "targetSources": string[] }]`;
+
+    const response = await this.llm.generate(prompt, "");
+    return JSON.parse(response);
+  }
+
+  // ---- 决策 3: WHERE — 动态路由 ----
+  async routeQuery(subQuery: SubQuery): Promise<RetrievalResult[]> {
+    const allResults: RetrievalResult[] = [];
+
+    for (const sourceName of subQuery.targetSources) {
+      const source = this.sources.get(sourceName);
+      if (!source) continue;
+
+      const results = await source.query(subQuery.text);
+      allResults.push(
+        ...results.map((r) => ({ ...r, source: sourceName }))
+      );
+    }
+
+    return allResults;
+  }
+
+  // ---- 决策 4: HOW — 结果评估与反思 ----
+  async evaluateResults(
+    results: RetrievalResult[],
+    query: string
+  ): Promise<EvaluationResult> {
+    const context = results
+      .map((r, i) => `[${i + 1}] (来源: ${r.source}) ${r.content}`)
+      .join("\n\n");
+
+    const prompt = `评估以下检索结果是否充分回答了查询。
+
+查询: ${query}
+
+检索结果:
+${context}
+
+评估维度:
+1. 完整性: 是否覆盖了查询的所有方面
+2. 准确性: 信息是否可靠，来源是否权威
+3. 时效性: 信息是否足够新
+
+返回 JSON: { "score": number, "gaps": string[], "suggestions": string[] }`;
+
+    const response = await this.llm.generate(prompt, "");
+    return JSON.parse(response);
+  }
+
+  // ---- 核心: 迭代精炼检索 ----
+  async iterativeRefine(
+    query: string,
+    maxRounds: number = 3
+  ): Promise<{ context: string; rounds: number; decisions: string[] }> {
+    const decisions: string[] = [];
+    let allResults: RetrievalResult[] = [];
+
+    for (let round = 0; round < maxRounds; round++) {
+      // 第一轮: 分解原始查询; 后续轮: 根据 gaps 生成补充查询
+      const subQueries =
+        round === 0
+          ? await this.decomposeQuery(query)
+          : await this.decomposeQuery(
+              `基于已有信息的不足，补充检索: ${query}\n缺失信息: ${allResults.length > 0 ? (await this.evaluateResults(allResults, query)).gaps.join(", ") : "全部"}`
+            );
+
+      decisions.push(
+        `Round ${round + 1}: 生成 ${subQueries.length} 个子查询`
+      );
+
+      // 执行检索
+      for (const sq of subQueries) {
+        if (this.tokensUsed >= this.tokenBudget) {
+          decisions.push(`Token 预算耗尽，停止检索`);
+          break;
+        }
+        const results = await this.routeQuery(sq);
+        allResults.push(...results);
+        this.tokensUsed += results.reduce(
+          (sum, r) => sum + this.estimateTokens(r.content), 0
+        );
+      }
+
+      // 评估结果充分度
+      const evaluation = await this.evaluateResults(allResults, query);
+      decisions.push(
+        `Round ${round + 1} 评估: score=${evaluation.score.toFixed(2)}`
+      );
+
+      // 充分度足够高则提前终止
+      if (evaluation.score >= 0.85) {
+        decisions.push(`信息充分，结束检索`);
+        break;
+      }
+
+      // 没有改进建议也终止
+      if (evaluation.suggestions.length === 0) {
+        decisions.push(`无进一步检索建议，结束`);
+        break;
+      }
+    }
+
+    const context = allResults
+      .map((r) => `[${r.source}] ${r.content}`)
+      .join("\n\n");
+
+    return { context, rounds: decisions.length, decisions };
+  }
+
+  // ---- 完整的 Agentic RAG 流程 ----
+  async answer(
+    query: string,
+    conversationContext: string = ""
+  ): Promise<{ answer: string; trace: string[] }> {
+    const trace: string[] = [];
+
+    // Step 1: 决定是否需要检索
+    const decision = await this.shouldRetrieve(query, conversationContext);
+    trace.push(`检索决策: ${decision.shouldRetrieve} (${decision.reason})`);
+
+    if (!decision.shouldRetrieve) {
+      const answer = await this.llm.generate(query, conversationContext);
+      trace.push("直接由 LLM 回答，无需检索");
+      return { answer, trace };
+    }
+
+    // Step 2: 迭代检索
+    const { context, decisions } = await this.iterativeRefine(query);
+    trace.push(...decisions);
+
+    // Step 3: 基于检索结果生成回答
+    const finalPrompt = `基于以下检索到的信息回答用户问题。
+如果检索信息不足以回答，请明确指出哪些部分是基于检索，哪些是推断。
+
+用户问题: ${query}
+
+检索信息:
+${context}`;
+
+    const answer = await this.llm.generate(finalPrompt, conversationContext);
+    trace.push("基于检索结果生成最终回答");
+
+    return { answer, trace };
+  }
+
+  private estimateTokens(text: string): number {
+    return Math.ceil(text.length / 3);
+  }
+}
+```
+
+#### 关键设计模式
+
+**检索路由（Retrieval Routing）**：不同类型的查询路由到不同的知识源。事实型查询优先走向量数据库；数据分析型查询路由到 SQL 数据库；需要最新信息的查询路由到 Web 搜索。路由决策本身由 LLM 完成，这也是"Agentic"的核心含义。
+
+**迭代深化（Iterative Deepening）**：第一轮做宽泛检索获取整体上下文，Agent 评估结果后识别信息缺口，生成更有针对性的后续查询。这类似于人类研究者的工作方式——先快速浏览，再深入细节。
+
+**自我反思（Self-Reflection）**：Agent 在生成最终回答前评估检索结果的充分度。如果置信度不够，要么继续检索，要么在回答中明确标注不确定的部分。这避免了传统 RAG 中"有检索结果就一定用"的盲目性。
+
+#### 生产注意事项
+
+在生产环境中部署 Agentic RAG 需要注意以下平衡：
+
+- **Token 预算管理**：每轮 LLM 调用（决策、评估、生成）都消耗 Token。设置严格的预算上限，避免复杂查询触发无限循环检索。
+- **延迟与质量的权衡**：迭代检索显著增加端到端延迟。对于延迟敏感的场景，可设置最大轮次为 1-2 轮；对于质量优先的场景（如法律、医疗），允许 3-5 轮迭代。
+- **降级策略**：当 Agent 决策模块出错或超时时，自动降级为标准 RAG（直接检索 + 生成），保证系统可用性。
+- **决策追踪**：记录每一步的决策理由（`trace`），便于调试和审计。这在受监管行业中尤为重要。
+
 ---
 
 ## 8.7 生产环境部署
@@ -3680,6 +3966,207 @@ class ProductionRAGService {
   }
 }
 ```
+
+### 8.7.6 嵌入模型选型与多向量检索
+
+嵌入模型（Embedding Model）是 RAG 系统的"感知层"——它决定了系统能"看懂"什么。选错模型，后续的检索和生成再精巧也无济于事。本节系统梳理选型维度，并介绍正在改变检索范式的多向量方法。
+
+#### 选型维度
+
+| 维度 | 考量因素 | 推荐 |
+|------|----------|------|
+| 维度数 | 384 / 768 / 1024 / 1536 / 3072 | 768-1024 性价比最优 |
+| 多语言 | 中英混合语料 | multilingual-e5-large, BGE-M3 |
+| 领域适配 | 代码 / 法律 / 医学 | 领域微调模型 |
+| 推理速度 | 实时交互 vs 离线批量 | 小模型实时，大模型批量 |
+| 上下文长度 | 512 / 8192+ tokens | 长文档用 8K+ 模型 |
+| 量化支持 | 二进制 / int8 / float16 | 大规模场景用量化降本 |
+
+#### 主流模型对比（2025-2026）
+
+```typescript
+// ============================================================
+// 嵌入模型选型参考: 主流模型特性对比
+// ============================================================
+
+interface EmbeddingModelSpec {
+  name: string;
+  provider: string;
+  dimensions: number;
+  maxTokens: number;
+  multilingual: boolean;
+  strengths: string[];
+}
+
+const EMBEDDING_MODELS_2025: EmbeddingModelSpec[] = [
+  {
+    name: "text-embedding-3-large",
+    provider: "OpenAI",
+    dimensions: 3072,                     // 支持降维到 256/1024
+    maxTokens: 8191,
+    multilingual: true,
+    strengths: ["维度灵活可调", "生态成熟", "Matryoshka 表示"],
+  },
+  {
+    name: "embed-v4",
+    provider: "Cohere",
+    dimensions: 1024,
+    maxTokens: 512,
+    multilingual: true,
+    strengths: ["压缩感知", "int8/binary 量化", "搜索质量领先"],
+  },
+  {
+    name: "BGE-M3",
+    provider: "BAAI (智源)",
+    dimensions: 1024,
+    maxTokens: 8192,
+    multilingual: true,
+    strengths: ["多粒度检索", "开源可私有部署", "中文表现优秀"],
+  },
+  {
+    name: "voyage-code-3",
+    provider: "Voyage AI",
+    dimensions: 1024,
+    maxTokens: 16000,
+    multilingual: false,
+    strengths: ["代码检索专精", "长上下文", "多语言代码"],
+  },
+  {
+    name: "jina-embeddings-v3",
+    provider: "Jina AI",
+    dimensions: 1024,
+    maxTokens: 8192,
+    multilingual: true,
+    strengths: ["Task LoRA 适配", "开源", "多任务切换"],
+  },
+];
+```
+
+选型原则：优先在 MTEB（Massive Text Embedding Benchmark）排行榜上验证目标语言和任务类型的表现，再结合成本和部署约束做最终决策。
+
+#### ColBERT：晚期交互检索
+
+传统嵌入模型为每个文档生成**单一向量**——无论文档多长、内容多丰富，都被压缩到一个固定维度的点。这导致了信息瓶颈：多面向的查询难以用单个向量精确匹配。
+
+ColBERT（Contextualized Late Interaction over BERT）采用了完全不同的策略——**为每个 Token 生成独立的向量**，在检索时进行"晚期交互"：
+
+```typescript
+// ============================================================
+// 单向量 vs 多向量检索: 概念对比
+// ============================================================
+
+// ---- 传统单向量模型 ----
+interface SingleVectorModel {
+  // 整个文档 → 1 个向量
+  encode(text: string): number[];         // e.g., [0.12, -0.34, ...] (1024 维)
+}
+
+// 相似度计算: 简单的余弦相似度
+function singleVectorSimilarity(
+  queryVec: number[],
+  docVec: number[]
+): number {
+  return cosineSimilarity(queryVec, docVec);
+}
+
+// ---- ColBERT 多向量模型 ----
+interface ColBERTModel {
+  // 每个 Token → 1 个向量，文档 → N 个向量
+  encode(text: string): number[][];       // e.g., [[0.12, ...], [0.08, ...], ...] (N × 128 维)
+}
+
+// 相似度计算: MaxSim 操作
+function maxSimSimilarity(
+  queryTokenVecs: number[][],             // Q 个查询 Token 向量
+  docTokenVecs: number[][]                // D 个文档 Token 向量
+): number {
+  let totalScore = 0;
+
+  for (const qVec of queryTokenVecs) {
+    // 对每个查询 Token，找到与文档中最相似的 Token
+    let maxSim = -Infinity;
+    for (const dVec of docTokenVecs) {
+      const sim = cosineSimilarity(qVec, dVec);
+      if (sim > maxSim) maxSim = sim;
+    }
+    totalScore += maxSim;                 // 累加每个查询 Token 的最大相似度
+  }
+
+  return totalScore;
+}
+```
+
+**MaxSim 的直觉**：查询"TypeScript 的类型推断和编译性能"包含两个意图——"类型推断"和"编译性能"。单向量模型必须用一个向量同时表达两者，往往顾此失彼。ColBERT 让"类型"、"推断"、"编译"、"性能"各自的 Token 向量独立匹配文档中对应的内容，每个意图都能精确对齐。
+
+**ColBERT 的优势**：
+- 多面向查询的精确匹配，检索质量显著优于单向量
+- Token 级别的细粒度交互，适合长文档场景
+- 文档端向量可以预计算和索引，查询延迟可控
+
+**代价**：存储空间大幅增加（每个文档从 1 个向量变为数百个向量），需要专门的索引结构（如 PLAID）支持高效检索。
+
+#### ColPali：多模态文档检索
+
+真实世界的文档不只有纯文本——PDF 中的图表、表格、流程图往往包含关键信息。传统 RAG 依赖 OCR 和布局解析来提取这些内容，但提取质量往往不稳定。
+
+ColPali 将 ColBERT 的多向量思想扩展到视觉领域：直接对文档页面的**截图**生成 Patch 级别的嵌入向量，无需 OCR：
+
+```typescript
+// ============================================================
+// ColPali: 基于视觉语言模型的多模态文档检索
+// ============================================================
+
+interface ColPaliModel {
+  // 文档页面截图 → 每个图像 Patch 的向量
+  encodeImage(pageScreenshot: ImageData): number[][];   // P 个 Patch 向量
+
+  // 文本查询 → 每个 Token 的向量 (与 ColBERT 一致)
+  encodeQuery(query: string): number[][];               // Q 个 Token 向量
+}
+
+// 检索流程: 与 ColBERT 的 MaxSim 完全一致
+function colPaliRetrieval(
+  model: ColPaliModel,
+  query: string,
+  pageImages: ImageData[]
+): Array<{ pageIndex: number; score: number }> {
+  const queryVecs = model.encodeQuery(query);
+
+  return pageImages
+    .map((img, idx) => {
+      const patchVecs = model.encodeImage(img);
+      // 复用 MaxSim: 查询 Token 向量 × 图像 Patch 向量
+      const score = maxSimSimilarity(queryVecs, patchVecs);
+      return { pageIndex: idx, score };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+```
+
+**ColPali 的核心价值**：
+- **跳过 OCR**：直接处理页面图像，避免 OCR 错误和布局解析的复杂性
+- **理解视觉元素**：图表、表格、公式等视觉信息被原生理解，而非丢失
+- **端到端简化**：文档处理管线从"PDF → OCR → 文本分块 → 嵌入"简化为"PDF → 截图 → Patch 嵌入"
+
+**适用场景**：包含大量图表和表格的技术文档、扫描版 PDF、排版复杂的金融报告等。
+
+#### 选型决策树
+
+根据实际场景选择合适的嵌入与检索策略：
+
+```
+查询和文档类型?
+├── 纯文本，查询简单 → 单向量模型 (text-embedding-3, BGE-M3)
+│   └── 成本敏感? → 量化 + Matryoshka 降维
+├── 纯文本，查询复杂/多面向 → ColBERT 多向量
+│   └── 存储受限? → ColBERTv2 + PLAID 压缩索引
+├── 包含图表/表格的文档 → ColPali 多模态
+│   └── 混合场景? → ColPali 检索 + 文本精排
+└── 代码库 → 代码专用模型 (voyage-code-3)
+    └── 多语言代码? → 通用代码模型
+```
+
+> **实践建议**：大多数项目应从单向量模型起步（成熟、成本低、生态好），在确认检索质量是瓶颈后再评估 ColBERT 或 ColPali。过早引入多向量方案会增加存储成本和系统复杂度。
 
 ---
 

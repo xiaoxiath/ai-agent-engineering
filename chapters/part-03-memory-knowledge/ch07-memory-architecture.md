@@ -3566,6 +3566,188 @@ async function demonstrateMemoryAccumulation(): Promise<void> {
 
 ---
 
+### 7.7.4 MemGPT 与 Letta：虚拟上下文管理范式
+
+在前面的章节中，我们构建了一套完整的四层记忆架构。然而，业界还有另一种极具影响力的记忆管理范式——将 LLM 的上下文窗口视为**虚拟内存**，由模型自主决定何时换入换出信息。这一思想源自 MemGPT 论文（Packer et al., 2023），后来演化为开源框架 Letta。
+
+#### 起源：从操作系统到 LLM 记忆
+
+MemGPT 论文 *"MemGPT: Towards LLMs as Operating Systems"* 提出了一个关键洞察：LLM 的上下文窗口限制与计算机物理内存限制本质上是同一类问题。操作系统通过虚拟内存机制解决了物理内存不足的问题——同样的思路可以应用于 LLM：
+
+```
+┌─────────────────────────────────────────────────────┐
+│              MemGPT 虚拟上下文架构                     │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│   操作系统类比              MemGPT 对应              │
+│   ─────────────            ──────────               │
+│   物理内存 (RAM)    ←→     主上下文 (Main Context)    │
+│   ├─ 容量有限               ├─ 受 context window 限制 │
+│   ├─ 访问速度快             ├─ 每次推理直接可见        │
+│   └─ 需要换页管理           └─ 需要信息换入换出        │
+│                                                     │
+│   磁盘存储 (Disk)   ←→     外部存储 (External)       │
+│   ├─ 容量无限               ├─ 向量数据库 / 持久存储   │
+│   ├─ 访问较慢               ├─ 需要检索操作           │
+│   └─ 持久化                 └─ 跨会话持久化           │
+│                                                     │
+│   页面调度器        ←→     LLM 自身（通过函数调用）    │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+```
+
+这一类比的精妙之处在于：传统操作系统由内核管理页面调度，而在 MemGPT 中，**LLM 自身就是调度器**——它通过函数调用（tool calls）来决定何时从外部存储读取信息、何时将信息写入持久化存储。
+
+#### 三层记忆结构
+
+MemGPT 将记忆组织为三个层次，每层具有不同的持久性和访问模式：
+
+| 层次 | 位置 | 内容 | 访问方式 |
+|------|------|------|----------|
+| **Core Memory** | 始终在上下文中 | persona（Agent 人格）+ human（用户信息）块 | 直接读写，每次推理可见 |
+| **Recall Memory** | 外部向量数据库 | 完整对话历史，按时间索引 | 通过 `conversation_search` 检索 |
+| **Archival Memory** | 外部向量数据库 | 长期知识、文档、用户档案 | 通过 `archival_memory_search` 检索 |
+
+**Core Memory** 是最关键的创新——它是一段始终存在于系统提示中的可编辑文本块。Agent 可以通过 `core_memory_append` 和 `core_memory_replace` 函数实时修改这段文本，相当于 Agent 拥有了一块"随身便签"。
+
+#### 自主式记忆管理
+
+与传统的 RAG 检索不同，MemGPT 的核心理念是**让 LLM 自主管理记忆**。系统为 LLM 提供一组记忆操作函数，LLM 在每次推理时决定是否调用：
+
+```typescript
+/**
+ * MemGPT 风格的记忆管理器
+ * 核心思想：LLM 通过 tool calls 自主管理三层记忆
+ */
+interface MemGPTStyleMemoryManager {
+  // ===== Core Memory：始终在上下文中的可编辑块 =====
+
+  /** 向 core memory 的指定块追加内容 */
+  core_memory_append(params: {
+    block: 'persona' | 'human';
+    content: string;
+  }): Promise<{ success: boolean; newLength: number }>;
+
+  /** 替换 core memory 中的指定内容 */
+  core_memory_replace(params: {
+    block: 'persona' | 'human';
+    oldContent: string;
+    newContent: string;
+  }): Promise<{ success: boolean }>;
+
+  // ===== Recall Memory：对话历史搜索 =====
+
+  /** 搜索历史对话记录 */
+  conversation_search(params: {
+    query: string;
+    page?: number;
+  }): Promise<{ results: ConversationEntry[]; totalPages: number }>;
+
+  /** 按时间范围搜索对话 */
+  conversation_search_date(params: {
+    startDate: string;
+    endDate: string;
+    page?: number;
+  }): Promise<{ results: ConversationEntry[]; totalPages: number }>;
+
+  // ===== Archival Memory：长期知识存储 =====
+
+  /** 向归档记忆中插入知识 */
+  archival_memory_insert(params: {
+    content: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<{ id: string }>;
+
+  /** 搜索归档记忆 */
+  archival_memory_search(params: {
+    query: string;
+    page?: number;
+  }): Promise<{ results: ArchivalEntry[]; totalPages: number }>;
+}
+
+/** 对话记录条目 */
+interface ConversationEntry {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: string;
+}
+
+/** 归档记忆条目 */
+interface ArchivalEntry {
+  id: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+```
+
+在实际运行中，LLM 的每次响应都可以包含多个函数调用。例如，当用户提到自己换了新工作时，LLM 可能会：
+
+1. 调用 `core_memory_replace` 更新 human 块中的职业信息
+2. 调用 `archival_memory_insert` 将旧职业信息归档
+3. 调用 `conversation_search` 查找之前关于工作的讨论
+4. 最后生成回复
+
+这种"先管理记忆，再回复用户"的模式让 Agent 能够主动维护自己的知识状态。
+
+#### Letta 框架：从论文到生产
+
+Letta（前身为 MemGPT 开源项目）是 MemGPT 思想的生产级实现，提供了完整的开发框架：
+
+- **服务端架构**：提供 REST API 和 Python/TypeScript SDK，支持多用户多 Agent 部署
+- **工具执行沙箱**：Agent 的函数调用在安全沙箱中执行，支持自定义工具
+- **多 Agent 支持**：支持 Agent 间通信和协作，共享记忆空间
+- **ADE（Agent Development Environment）**：可视化开发环境，便于调试记忆状态
+
+#### 与本书四层记忆模型的对照
+
+MemGPT 的三层结构与本书的四层架构存在清晰的映射关系，也有值得注意的差异：
+
+| MemGPT 层次 | 本书对应层次 | 相似点 | 差异点 |
+|-------------|-------------|--------|--------|
+| Core Memory | L1 工作记忆 | 都在当前上下文中、容量受限 | MemGPT 允许 LLM 直接编辑；本书侧重优先级淘汰 |
+| Recall Memory | L2 对话记忆 | 都存储对话历史、支持搜索 | MemGPT 强调分页检索；本书实现话题感知窗口 |
+| Archival Memory | L4 长期记忆 | 都是持久化知识存储 | MemGPT 由 LLM 自主写入；本书通过巩固流水线自动提取 |
+| （无直接对应） | L3 任务记忆 | — | 本书独有的任务执行轨迹层 |
+
+两种范式各有优势：MemGPT 的自主管理方式赋予 Agent 更大的灵活性，适合需要深度个性化的长期对话场景；本书的四层架构则提供了更精细的工程控制，适合需要可观测性和可调试性的生产环境。在实践中，两种思路完全可以融合——例如在本书的 L1 工作记忆中引入 MemGPT 风格的可编辑 core memory 块，同时保留 L3 任务记忆的结构化追踪能力。
+
+### 7.7.5 记忆管理平台对比
+
+了解了记忆架构的设计原理和 MemGPT 的创新范式后，让我们看看当前主流的记忆管理平台。这些平台将记忆管理能力封装为开箱即用的服务，可以显著降低 Agent 记忆系统的开发成本。
+
+#### 主流平台概览
+
+| 平台 | 类型 | 核心特性 | 记忆层次 | 开源协议 | 适用场景 |
+|------|------|----------|----------|----------|----------|
+| **Mem0** | 记忆层 | 多级记忆（User/Session/Agent）、自动提取、Graph Memory | User + Session + Agent | MIT | 个性化助手、跨会话记忆 |
+| **Zep** | 知识图谱 | Temporal Knowledge Graph、Graphiti 引擎、双时间建模 | Entity + Relation + Temporal | Apache 2.0 | 企业级 Agent、时间敏感记忆 |
+| **Letta** | 虚拟上下文 | 自主内存管理、OS 级抽象、REST API | Core + Recall + Archival | Apache 2.0 | 长期对话、复杂人格 Agent |
+| **LangMem** | 记忆工具 | 与 LangGraph 集成、记忆提取工具 | Semantic + Episodic | MIT | LangGraph 生态用户 |
+
+#### 各平台深度解析
+
+**Mem0** 是目前最受关注的记忆管理平台之一（GitHub 约 48K stars），由 Y Combinator S24 孵化。它的核心价值在于提供了开箱即用的多级记忆抽象——User 级记忆跨越所有会话持久存在，Session 级记忆跟踪单次对话上下文，Agent 级记忆维护 Agent 自身的知识和行为模式。Mem0 的 Graph Memory 功能基于知识图谱自动从对话中提取实体和关系，相比纯向量存储能更好地处理结构化知识和多跳推理。
+
+**Zep** 的独特优势在于其 Graphiti 时序知识图谱引擎。传统记忆系统往往忽略信息的时间维度——当用户说"我搬到了上海"时，系统需要知道这是最新事实，而之前"住在北京"的记录应被标记为历史状态而非删除。Zep 通过双时间建模（事实有效时间 + 系统记录时间）优雅地解决了这一问题。这使得 Zep 特别适合企业场景中需要追踪事实变迁的 Agent 应用。
+
+**Letta** 如上一节所述，是 MemGPT 论文的生产级演进。它的独特之处在于 OS 风格的内存管理抽象——让 LLM 自主决定记忆的读写和调度，而非依赖预设的检索规则。这种设计在需要深度个性化和长期角色扮演的场景中表现出色，Agent 能够像人类一样主动"记住"和"回忆"信息。
+
+**LangMem** 是 LangChain 生态中的记忆解决方案，与 LangGraph 状态管理深度集成。它将记忆能力封装为可组合的工具节点，支持语义记忆（事实和知识）和情景记忆（具体经历）的提取与检索。对于已经在使用 LangGraph 构建 Agent 的团队，LangMem 提供了最低摩擦的记忆集成路径。
+
+#### 如何选择记忆管理方案
+
+在选择具体方案时，建议基于以下维度进行评估：
+
+1. **记忆复杂度需求**：如果只需简单的用户偏好记忆，Mem0 的多级抽象足够优雅；如果涉及复杂的事实变迁和时间推理，Zep 的时序图谱更为合适；如果需要 Agent 具备深度自主记忆能力，Letta 的虚拟上下文范式值得考虑。
+
+2. **技术栈匹配**：已使用 LangGraph 的团队可优先评估 LangMem；追求框架无关性的团队可选择 Mem0 或 Zep 的独立 API；需要完整 Agent 框架的团队可考虑 Letta 的全栈方案。
+
+3. **部署与合规要求**：上述平台均为开源，支持私有化部署。但在企业级场景中需关注数据隔离、审计日志、GDPR 合规等能力的成熟度。Zep 和 Mem0 在企业功能上相对完善。
+
+4. **自建 vs 采用**：本章所构建的四层记忆架构提供了完整的自建方案，适合对记忆行为有精细控制需求的团队。而上述平台提供了更快的启动速度和更低的维护成本。在实际工程中，混合方案往往是最佳选择——使用平台处理通用记忆能力，同时自建特定领域的记忆逻辑。
+
+
 ## 7.8 本章小结
 
 本章系统地构建了 Agent 的记忆架构——从认知科学的启发到工程实现的每一个细节。让我们回顾核心要点：

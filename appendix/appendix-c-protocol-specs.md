@@ -91,37 +91,40 @@ submitted → working → completed
 
 ## C.3 ACP (Agent Communication Protocol)
 
-### C.3.1 协议概述
+> **历史说明**：ACP 最初由 IBM 于 2025 年发起，作为独立的企业级 Agent 通信协议。2025 年 8 月，ACP 正式合并入 A2A 协议，其核心特性（多轮对话支持、人工介入机制）被整合进 A2A 规范。以下内容保留作为历史参考。
+
+### C.3.1 协议概述（历史）
 
 - **发起者**: IBM (2025)
 - **目的**: 企业级 Agent 异步协作
 - **特点**: 原生支持多轮对话和人工介入
+- **当前状态**: 已于 2025 年 8 月合并入 A2A 协议
 
-### C.3.2 与 A2A 的差异
+### C.3.2 与 A2A 的关系
 
-| 特性 | A2A | ACP |
-|------|-----|-----|
-| 多轮交互 | 通过 input-required | 原生支持 |
-| 人工干预 | 未定义 | 内置 HITL |
-| 消息格式 | 自定义 JSON | MIME multipart |
-| 发现机制 | Agent Card | 服务注册 |
-| 适用场景 | 通用协作 | 企业工作流 |
+ACP 的核心设计理念已融入 A2A 协议。原 ACP 特有功能在 A2A 中的对应关系：
+
+| ACP 原有特性 | A2A 中的实现 |
+|-------------|-------------|
+| 多轮交互 | A2A Tasks 的 input-required 状态 |
+| 人工干预（HITL） | A2A 任务状态机 + 外部回调 |
+| MIME multipart 消息 | A2A Parts（TextPart / FilePart / DataPart） |
+| 服务注册与发现 | A2A Agent Card |
 
 ## C.4 协议互操作
 
-### C.4.1 三协议集成模式
+### C.4.1 双协议集成模式
 
 ```
 MCP: Agent ←→ Tools (工具连接层)
-A2A: Agent ←→ Agent (对等协作层)
-ACP: Agent ←→ Enterprise (企业集成层)
+A2A: Agent ←→ Agent (对等协作层，含原 ACP 企业特性)
 
 推荐架构:
 ┌─────────────────────────────┐
 │        Agent Core           │
-│  ┌───────┐ ┌────┐ ┌────┐  │
-│  │  MCP  │ │ A2A│ │ACP │  │
-│  │Client │ │Peer│ │Node│  │
-│  └───────┘ └────┘ └────┘  │
+│  ┌───────┐ ┌────┐          │
+│  │  MCP  │ │ A2A│          │
+│  │Client │ │Peer│          │
+│  └───────┘ └────┘          │
 └─────────────────────────────┘
 ```

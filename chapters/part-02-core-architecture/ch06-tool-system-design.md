@@ -1902,7 +1902,7 @@ Host (LLM 应用)
 ```typescript
 /**
  * MCP 协议核心类型定义
- * 基于 MCP 规范 2024-11-05 版本
+ * 基于 MCP 规范 2025-03-26 版本
  */
 
 /** JSON-RPC 2.0 消息基础类型 */
@@ -1983,6 +1983,171 @@ interface MCPInitializeResult {
   };
 }
 ```
+
+### 6.4.2b MCP Resources 与 Prompts 原语
+
+MCP 协议不仅仅是"工具调用协议"。2025 版规范定义了三种核心原语（Primitive），构成完整的 Agent-Server 交互模型：
+
+| 原语 | 方向 | 控制方 | 用途 |
+|------|------|--------|------|
+| **Tools** | Server → Client | 模型发起调用 | 执行操作、产生副作用 |
+| **Resources** | Server → Client | 应用程序控制 | 向 LLM 上下文注入结构化数据 |
+| **Prompts** | Server → Client | 用户触发 | 提供可复用的 Prompt 模板 |
+
+前文已深入讨论了 Tools 原语。本节补充 Resources 和 Prompts 两个同样重要但容易被忽视的原语。
+
+#### Resources 原语
+
+Resources 允许 MCP Server 向客户端暴露 **只读的结构化数据**，供 LLM 作为上下文使用。典型场景包括：数据库 Schema 暴露、配置文件内容、用户画像数据、实时日志流等。与 Tools 不同，Resources 不执行操作、不产生副作用——它们是纯粹的数据源。
+
+```typescript
+// ============================================================
+// MCP Resources 原语 -- 类型定义
+// ============================================================
+
+/** 资源描述 */
+interface MCPResource {
+  uri: string;           // 资源唯一标识，如 "file:///workspace/schema.sql"
+  name: string;          // 人类可读名称
+  description?: string;  // 资源用途描述
+  mimeType?: string;     // MIME 类型，如 "application/json"
+}
+
+/** 资源模板（URI Template，支持参数化访问） */
+interface MCPResourceTemplate {
+  uriTemplate: string;   // URI 模板，如 "db://{schema}/{table}"
+  name: string;
+  description?: string;
+  mimeType?: string;
+}
+
+/** 列出可用资源 */
+interface ListResourcesRequest {
+  method: 'resources/list';
+  params?: { cursor?: string };
+}
+
+interface ListResourcesResponse {
+  resources: MCPResource[];
+  nextCursor?: string;  // 分页游标
+}
+
+/** 读取资源内容 */
+interface ReadResourceRequest {
+  method: 'resources/read';
+  params: { uri: string };
+}
+
+interface ReadResourceResponse {
+  contents: Array<{
+    uri: string;
+    mimeType?: string;
+    text?: string;       // 文本内容
+    blob?: string;       // Base64 编码的二进制内容
+  }>;
+}
+
+/** 资源变更通知（需要 capabilities.resources.subscribe） */
+interface ResourceUpdatedNotification {
+  method: 'notifications/resources/updated';
+  params: { uri: string };
+}
+```
+
+Resource Template 是一种强大的参数化机制。例如，一个数据库 MCP Server 可以暴露模板 `db://{schema}/{table}`，客户端通过填入具体参数（如 `db://public/users`）来读取特定表的 Schema 信息，而不需要为每张表注册独立的资源。
+
+#### Prompts 原语
+
+Prompts 允许 MCP Server 暴露 **可复用的 Prompt 模板**，供用户通过斜杠命令（如 `/review-code`）或 UI 选择触发。这与 Tools 的关键区别在于：Tools 由模型自主决定何时调用，而 Prompts 由用户显式触发。
+
+```typescript
+// ============================================================
+// MCP Prompts 原语 -- 类型定义
+// ============================================================
+
+/** Prompt 参数定义 */
+interface MCPPromptArgument {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+/** Prompt 描述 */
+interface MCPPrompt {
+  name: string;           // Prompt 标识，如 "review-code"
+  description?: string;   // 用途描述
+  arguments?: MCPPromptArgument[];
+}
+
+/** 列出可用 Prompts */
+interface ListPromptsRequest {
+  method: 'prompts/list';
+  params?: { cursor?: string };
+}
+
+interface ListPromptsResponse {
+  prompts: MCPPrompt[];
+  nextCursor?: string;
+}
+
+/** 获取 Prompt 内容（模板实例化） */
+interface GetPromptRequest {
+  method: 'prompts/get';
+  params: {
+    name: string;
+    arguments?: Record<string, string>;
+  };
+}
+
+interface GetPromptResponse {
+  description?: string;
+  messages: Array<{
+    role: 'user' | 'assistant';
+    content: {
+      type: 'text' | 'resource';
+      text?: string;
+      resource?: { uri: string; text?: string; mimeType?: string };
+    };
+  }>;
+}
+```
+
+一个典型的 Prompts 使用场景：代码审查 MCP Server 提供 `review-code` Prompt，用户在 IDE 中输入 `/review-code`，客户端调用 `prompts/get` 获取包含审查规则和输出格式的完整 Prompt 模板，然后将其注入 LLM 上下文。模板中还可以通过嵌入 Resource 引用来自动拉取相关代码文件。
+
+#### 三原语协作模式
+
+三种原语在实际集成中互相配合，形成完整的 Agent-Server 交互链路：
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                      MCP 三原语协作流程                           │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  用户触发: /deploy-service                                       │
+│       │                                                          │
+│       ▼                                                          │
+│  ① Prompts -- prompts/get("deploy-service")                     │
+│       │        返回部署流程 Prompt 模板                           │
+│       ▼                                                          │
+│  ② Resources -- resources/read("config://env/production")       │
+│       │          注入生产环境配置到 LLM 上下文                    │
+│       ▼                                                          │
+│  ③ Tools -- tools/call("deploy", { service, env, version })     │
+│       │      LLM 基于上下文决策，调用部署工具                     │
+│       ▼                                                          │
+│  ④ Resources -- resources/read("logs://deploy/latest")          │
+│                  读取部署日志供 LLM 生成摘要                      │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+这种分层设计的核心价值在于 **关注点分离**：
+
+- **Prompts** 封装"怎么问"——将领域知识和最佳实践固化为模板，降低用户使用门槛。
+- **Resources** 封装"知道什么"——将动态数据以标准接口暴露，避免 LLM 产生幻觉。
+- **Tools** 封装"能做什么"——将操作能力标准化，由模型在充分上下文下自主调用。
+
+> **设计提示**：在实现 MCP Server 时，优先考虑哪些数据适合作为 Resources 暴露（而非硬编码在 Tool 的 description 中），哪些常见工作流适合封装为 Prompts（而非让用户每次手动编写）。三原语的合理划分，能显著降低 Token 消耗并提升 Agent 的一致性表现。
 
 ### 6.4.3 Stdio 传输模式实现
 
@@ -2335,6 +2500,417 @@ class SSETransport extends EventEmitter {
 }
 ```
 
+### 6.4.4b Streamable HTTP 传输模式（2025 规范）
+
+> **重要更新**：MCP 2025-03-26 规范引入了 Streamable HTTP 传输模式，作为旧版 HTTP+SSE 方案的现代化替代。Streamable HTTP 使用单一 HTTP 端点，支持请求-响应和流式两种模式，大幅简化了部署架构。
+
+**Streamable HTTP vs 旧版 SSE 对比**：
+
+| 特性 | 旧版 HTTP+SSE | Streamable HTTP |
+|------|-------------|-----------------|
+| 端点数量 | 2 个（/sse + /messages） | 1 个（/mcp） |
+| 连接管理 | 长连接 SSE 流 | 按需连接，可选流式 |
+| 无状态支持 | 否（需持久连接） | 是（支持无状态和有状态两种模式） |
+| 恢复能力 | 需重新建连 | 支持会话恢复（Mcp-Session-Id） |
+| 部署友好性 | 需 SSE 支持的基础设施 | 标准 HTTP，兼容 CDN/负载均衡 |
+
+```typescript
+/**
+ * Streamable HTTP Transport（MCP 2025-03-26 规范）
+ *
+ * 核心改进：
+ * 1. 单一端点 /mcp，通过 Accept header 协商响应格式
+ * 2. 支持无状态模式（每次请求独立）和有状态模式（Mcp-Session-Id 关联会话）
+ * 3. 服务端可选择返回普通 JSON 或 SSE 流
+ */
+import { EventEmitter } from 'events';
+
+interface StreamableHTTPConfig {
+  /** MCP Server 的 HTTP 端点 URL */
+  endpoint: string;
+  /** OAuth 2.1 access token（远程 Server 场景） */
+  accessToken?: string;
+  /** 会话 ID（有状态模式） */
+  sessionId?: string;
+  /** 请求超时（毫秒） */
+  timeout?: number;
+}
+
+class StreamableHTTPTransport extends EventEmitter {
+  private config: StreamableHTTPConfig;
+  private sessionId: string | null = null;
+
+  constructor(config: StreamableHTTPConfig) {
+    super();
+    this.config = config;
+    this.sessionId = config.sessionId ?? null;
+  }
+
+  /**
+   * 发送 JSON-RPC 请求到 MCP Server
+   * 根据服务端响应自动选择普通 JSON 或 SSE 流解析
+   */
+  async send(message: JsonRpcRequest): Promise<JsonRpcResponse | void> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+    };
+
+    // 有状态模式：携带会话 ID
+    if (this.sessionId) {
+      headers['Mcp-Session-Id'] = this.sessionId;
+    }
+
+    // OAuth 2.1 认证
+    if (this.config.accessToken) {
+      headers['Authorization'] = `Bearer ${this.config.accessToken}`;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      this.config.timeout ?? 30_000
+    );
+
+    try {
+      const response = await fetch(this.config.endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(message),
+        signal: controller.signal,
+      });
+
+      // 保存服务端返回的会话 ID
+      const newSessionId = response.headers.get('Mcp-Session-Id');
+      if (newSessionId) {
+        this.sessionId = newSessionId;
+      }
+
+      const contentType = response.headers.get('Content-Type') ?? '';
+
+      if (contentType.includes('text/event-stream')) {
+        // 流式响应：解析 SSE 事件
+        return this.handleSSEResponse(response);
+      } else if (contentType.includes('application/json')) {
+        // 普通 JSON 响应
+        return await response.json() as JsonRpcResponse;
+      } else if (response.status === 202) {
+        // 202 Accepted：通知类消息，无响应体
+        return;
+      } else {
+        throw new Error(`Unexpected content type: ${contentType}`);
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /** 解析 SSE 流式响应 */
+  private async handleSSEResponse(response: Response): Promise<void> {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No response body');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6).trim();
+          if (data) {
+            const message = JSON.parse(data) as JsonRpcResponse;
+            this.emit('message', message);
+          }
+        }
+      }
+    }
+  }
+
+  /** 获取当前会话 ID */
+  getSessionId(): string | null {
+    return this.sessionId;
+  }
+
+  /** 终止会话（有状态模式） */
+  async terminate(): Promise<void> {
+    if (!this.sessionId) return;
+
+    await fetch(this.config.endpoint, {
+      method: 'DELETE',
+      headers: {
+        'Mcp-Session-Id': this.sessionId,
+        ...(this.config.accessToken && {
+          'Authorization': `Bearer ${this.config.accessToken}`,
+        }),
+      },
+    });
+
+    this.sessionId = null;
+    this.emit('close');
+  }
+}
+```
+
+> **迁移建议**：新项目应优先采用 Streamable HTTP 传输。旧版 SSE 传输仍可用于向后兼容，但 MCP 规范标注其为"已废弃"（deprecated）。对于本地 MCP Server（如 IDE 插件），Stdio 传输仍是最佳选择。
+
+### 6.4.4c MCP 授权框架（OAuth 2.1）
+
+MCP 2025-03-26 规范新增了基于 OAuth 2.1 的授权框架，用于远程 MCP Server 场景下的身份验证和权限控制。
+
+**授权流程**：
+
+```
+┌──────────┐     ┌──────────────┐     ┌──────────────────┐
+│ MCP      │     │ Authorization│     │ Remote MCP       │
+│ Client   │     │ Server       │     │ Server           │
+└────┬─────┘     └──────┬───────┘     └────────┬─────────┘
+     │                  │                      │
+     │  1. 发现授权端点  │                      │
+     │──────────────────────────────────────────>
+     │  WWW-Authenticate: Bearer               │
+     │<──────────────────────────────────────────
+     │                  │                      │
+     │  2. 获取授权码    │                      │
+     │─────────────────>│                      │
+     │  Authorization   │                      │
+     │  Code            │                      │
+     │<─────────────────│                      │
+     │                  │                      │
+     │  3. 交换 Token   │                      │
+     │─────────────────>│                      │
+     │  Access Token +  │                      │
+     │  Refresh Token   │                      │
+     │<─────────────────│                      │
+     │                  │                      │
+     │  4. 访问 MCP Server（携带 Access Token） │
+     │──────────────────────────────────────────>
+     │  Bearer Token 验证                      │
+     │<──────────────────────────────────────────
+```
+
+```typescript
+/**
+ * MCP OAuth 2.1 授权管理器
+ * 实现远程 MCP Server 的认证流程
+ */
+interface MCPAuthConfig {
+  /** 授权服务器端点 */
+  authorizationEndpoint: string;
+  /** Token 端点 */
+  tokenEndpoint: string;
+  /** 客户端 ID（PKCE 公客户端无需 client_secret） */
+  clientId: string;
+  /** 重定向 URI */
+  redirectUri: string;
+  /** 请求的权限范围 */
+  scopes: string[];
+}
+
+interface TokenSet {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt: number;
+}
+
+class MCPAuthManager {
+  private config: MCPAuthConfig;
+  private tokenSet: TokenSet | null = null;
+  private codeVerifier: string | null = null;
+
+  constructor(config: MCPAuthConfig) {
+    this.config = config;
+  }
+
+  /**
+   * 步骤 1：生成 PKCE 授权 URL
+   * OAuth 2.1 要求所有客户端使用 PKCE（Proof Key for Code Exchange）
+   */
+  async getAuthorizationUrl(): Promise<string> {
+    // 生成 PKCE code_verifier 和 code_challenge
+    this.codeVerifier = this.generateCodeVerifier();
+    const codeChallenge = await this.generateCodeChallenge(this.codeVerifier);
+
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: this.config.clientId,
+      redirect_uri: this.config.redirectUri,
+      scope: this.config.scopes.join(' '),
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+    });
+
+    return `${this.config.authorizationEndpoint}?${params}`;
+  }
+
+  /**
+   * 步骤 2：用授权码交换 Token
+   */
+  async exchangeCode(authorizationCode: string): Promise<TokenSet> {
+    if (!this.codeVerifier) {
+      throw new Error('PKCE code verifier not initialized. Call getAuthorizationUrl() first.');
+    }
+
+    const response = await fetch(this.config.tokenEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: authorizationCode,
+        redirect_uri: this.config.redirectUri,
+        client_id: this.config.clientId,
+        code_verifier: this.codeVerifier,
+      }),
+    });
+
+    const data = await response.json();
+    this.tokenSet = {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + data.expires_in * 1000,
+    };
+
+    return this.tokenSet;
+  }
+
+  /**
+   * 获取有效的 Access Token（自动刷新过期 Token）
+   */
+  async getAccessToken(): Promise<string> {
+    if (!this.tokenSet) {
+      throw new Error('Not authenticated. Complete OAuth flow first.');
+    }
+
+    // Token 过期前 5 分钟自动刷新
+    if (Date.now() > this.tokenSet.expiresAt - 5 * 60 * 1000) {
+      await this.refreshAccessToken();
+    }
+
+    return this.tokenSet.accessToken;
+  }
+
+  private async refreshAccessToken(): Promise<void> {
+    if (!this.tokenSet?.refreshToken) {
+      throw new Error('No refresh token available. Re-authenticate required.');
+    }
+
+    const response = await fetch(this.config.tokenEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: this.tokenSet.refreshToken,
+        client_id: this.config.clientId,
+      }),
+    });
+
+    const data = await response.json();
+    this.tokenSet = {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token ?? this.tokenSet.refreshToken,
+      expiresAt: Date.now() + data.expires_in * 1000,
+    };
+  }
+
+  private generateCodeVerifier(): string {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return this.base64UrlEncode(array);
+  }
+
+  private async generateCodeChallenge(verifier: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(verifier);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    return this.base64UrlEncode(new Uint8Array(hash));
+  }
+
+  private base64UrlEncode(buffer: Uint8Array): string {
+    let binary = '';
+    for (const byte of buffer) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+}
+```
+
+> **安全提示**：OAuth 2.1 相比 OAuth 2.0 的主要变化是：(1) **强制 PKCE** 用于所有客户端类型；(2) **禁止隐式授权**（Implicit Flow）；(3) **Refresh Token 需要旋转**（Rotation）或绑定至发送者。这些改进显著提升了 MCP 远程 Server 场景下的安全性。
+
+### 6.4.4d Elicitation（用户信息请求）
+
+MCP 2025-03-26 规范新增了 Elicitation 能力，允许 MCP Server 在工具执行过程中向用户请求额外信息。这解决了一个常见问题：工具执行时发现需要用户确认或补充输入，但传统 MCP 流程中没有"反向请求"机制。
+
+**典型场景**：
+- 文件删除工具请求用户确认："确定要删除这 15 个文件吗？"
+- 数据库工具请求凭证："请提供目标数据库的连接密码"
+- 部署工具请求选择："检测到 3 个可用环境，请选择部署目标"
+
+```typescript
+/**
+ * Elicitation 消息类型
+ * Server → Client 方向的请求，要求用户提供额外信息
+ */
+interface ElicitRequest {
+  method: 'elicitation/create';
+  params: {
+    /** 向用户展示的提示信息 */
+    message: string;
+    /** 请求的数据 Schema（JSON Schema 格式） */
+    requestedSchema: {
+      type: 'object';
+      properties: Record<string, {
+        type: string;
+        description?: string;
+        enum?: string[];
+        default?: unknown;
+      }>;
+      required?: string[];
+    };
+  };
+}
+
+interface ElicitResponse {
+  /** 用户的操作结果 */
+  action: 'accept' | 'decline' | 'cancel';
+  /** 用户提供的数据（action 为 accept 时） */
+  content?: Record<string, unknown>;
+}
+
+/**
+ * 示例：在 MCP Client 中处理 Elicitation 请求
+ */
+async function handleElicitation(
+  request: ElicitRequest,
+  userInterface: UserInterface
+): Promise<ElicitResponse> {
+  // 向用户展示 Server 的请求
+  const userResponse = await userInterface.prompt({
+    message: request.params.message,
+    schema: request.params.requestedSchema,
+  });
+
+  if (userResponse.cancelled) {
+    return { action: 'cancel' };
+  }
+
+  if (userResponse.declined) {
+    return { action: 'decline' };
+  }
+
+  return {
+    action: 'accept',
+    content: userResponse.data,
+  };
+}
+```
+
+> **设计要点**：Elicitation 体现了 MCP 的"人在回路"（Human-in-the-Loop）设计哲学。MCP Client（Host 应用）有权决定是否将 Elicitation 请求展示给用户，可以根据安全策略自动拒绝或过滤敏感请求。
+
 ### 6.4.5 MCP 客户端实现
 
 ```typescript
@@ -2375,7 +2951,7 @@ class MCPClient {
 
     // 发送 initialize 请求
     const result = await this.transport.request('initialize', {
-      protocolVersion: '2024-11-05',
+      protocolVersion: '2025-03-26',
       capabilities: {
         sampling: {},
       },

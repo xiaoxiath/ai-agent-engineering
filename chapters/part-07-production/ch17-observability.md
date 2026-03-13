@@ -441,16 +441,25 @@ OpenTelemetry 社区正在制定 GenAI 相关的语义约定（Semantic Conventi
 | `gen_ai.usage.total_tokens` | int | 总 Token 数量 | `2370` |
 | `gen_ai.prompt.template` | string | Prompt 模板标识 | `"agent_system_v3"` |
 | `gen_ai.prompt.version` | string | Prompt 版本 | `"2024.03.15"` |
-| `agent.name` | string | Agent 名称 | `"research-agent"` |
-| `agent.type` | string | Agent 类型 | `"react"`, `"plan-execute"` |
-| `agent.loop.iteration` | int | 当前循环迭代次数 | `3` |
-| `agent.loop.max_iterations` | int | 最大迭代次数 | `10` |
-| `agent.tool.name` | string | 工具名称 | `"web_search"` |
-| `agent.tool.input_size` | int | 工具输入字节数 | `256` |
-| `agent.tool.output_size` | int | 工具输出字节数 | `4096` |
-| `agent.task.type` | string | 任务类型 | `"research"`, `"coding"` |
-| `agent.task.complexity` | string | 任务复杂度 | `"simple"`, `"complex"` |
-| `agent.cost.total_usd` | float | 总成本（美元） | `0.0847` |
+| `gen_ai.agent.name` | string | Agent 名称 | `"research-agent"` |
+| `gen_ai.agent.type` | string | Agent 类型 | `"react"`, `"plan-execute"` |
+| `gen_ai.agent.loop.iteration` | int | 当前循环迭代次数 | `3` |
+| `gen_ai.agent.loop.max_iterations` | int | 最大迭代次数 | `10` |
+| `gen_ai.tool.name` | string | 工具名称 | `"web_search"` |
+| `gen_ai.tool.input_size` | int | 工具输入字节数 | `256` |
+| `gen_ai.tool.output_size` | int | 工具输出字节数 | `4096` |
+| `gen_ai.agent.task.type` | string | 任务类型 | `"research"`, `"coding"` |
+| `gen_ai.agent.task.complexity` | string | 任务复杂度 | `"simple"`, `"complex"` |
+| `gen_ai.usage.cost_usd` | float | 总成本（美元） | `0.0847` |
+
+
+> **从自定义属性到 GenAI 语义约定的迁移**
+>
+> 在 OpenTelemetry GenAI 语义约定（Semantic Conventions v1.30+）正式发布之前，社区和各厂商普遍使用自定义命名空间（如 `agent.*`、`llm.*`、`tool.*`）来标注 AI 相关的 Span 属性。这种碎片化导致了严重的互操作性问题——Langfuse、Arize Phoenix、OpenLLMetry 等可观测性工具各自期望不同的属性名称，团队不得不为每个平台编写适配层，或者在切换工具时面临大量数据迁移工作。
+>
+> GenAI 语义约定通过统一的 `gen_ai.*` 命名空间解决了这一问题。所有 LLM 调用相关属性归入 `gen_ai.request.*`、`gen_ai.response.*`、`gen_ai.usage.*`；Agent 行为属性归入 `gen_ai.agent.*`；工具调用属性归入 `gen_ai.tool.*`。这种层次化的命名设计不仅提升了可读性，更重要的是实现了跨平台的零配置兼容——任何遵循该约定的 Exporter 和分析工具都能自动识别和解析这些属性，无需额外映射。
+>
+> 本章所有代码示例均已迁移至 `gen_ai.*` 标准命名空间。如果你的系统中仍在使用旧的自定义属性名（如 `agent.name`、`llm.duration_ms`），建议尽快完成迁移。迁移过程中可以通过 OpenTelemetry Collector 的 `transform` processor 同时输出新旧两套属性名，实现平滑过渡。详细的属性映射关系和迁移指南请参考 [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) 官方文档。
 
 ### 17.2.2 OpenTelemetry SDK 初始化
 
@@ -586,7 +595,7 @@ class AgentSampler implements Sampler {
     }
 
     // 规则 2：高成本调用始终采样
-    const cost = attributes["agent.cost.total_usd"];
+    const cost = attributes["gen_ai.usage.cost_usd"];
     if (typeof cost === "number" && cost > 0.1) {
       return {
         decision: SamplingDecision.RECORD_AND_SAMPLED,
@@ -595,7 +604,7 @@ class AgentSampler implements Sampler {
     }
 
     // 规则 3：循环次数过多的 Agent 调用始终采样
-    const iterations = attributes["agent.loop.iteration"];
+    const iterations = attributes["gen_ai.agent.loop.iteration"];
     if (typeof iterations === "number" && iterations > 5) {
       return {
         decision: SamplingDecision.RECORD_AND_SAMPLED,
@@ -822,8 +831,8 @@ const otelSDK = new OTelSDKInitializer({
     alwaysSamplePatterns: ["error", "timeout", "loop_exceeded"],
   }),
   resourceAttributes: {
-    "agent.framework": "custom",
-    "agent.framework.version": "2.1.0",
+    "gen_ai.agent.framework": "custom",
+    "gen_ai.agent.framework.version": "2.1.0",
   },
 });
 
@@ -960,10 +969,10 @@ class AgentTracer {
     const span = this.tracer.startSpan("agent_request", {
       kind: SpanKind.SERVER,
       attributes: {
-        "agent.name": this.agentName,
-        "agent.task.id": params.taskId,
-        "agent.task.type": params.taskType,
-        "agent.request.input_length": params.input.length,
+        "gen_ai.agent.name": this.agentName,
+        "gen_ai.agent.task.id": params.taskId,
+        "gen_ai.agent.task.type": params.taskType,
+        "gen_ai.agent.request.input_length": params.input.length,
         ...(params.userId && { "user.id": params.userId }),
         ...(params.sessionId && { "session.id": params.sessionId }),
         ...(params.metadata ?? {}),
@@ -1002,10 +1011,10 @@ class AgentTracer {
     const span = this.tracer.startSpan("agent_loop_iteration", {
       kind: SpanKind.INTERNAL,
       attributes: {
-        "agent.name": this.agentName,
-        "agent.loop.iteration": info.iteration,
-        "agent.loop.max_iterations": info.maxIterations,
-        "agent.loop.decision": info.decision,
+        "gen_ai.agent.name": this.agentName,
+        "gen_ai.agent.loop.iteration": info.iteration,
+        "gen_ai.agent.loop.max_iterations": info.maxIterations,
+        "gen_ai.agent.loop.decision": info.decision,
       },
     });
 
@@ -1083,15 +1092,15 @@ class AgentTracer {
       "gen_ai.usage.output_tokens": result.outputTokens,
       "gen_ai.usage.total_tokens": result.totalTokens,
       "gen_ai.response.finish_reason": result.finishReason,
-      "llm.duration_ms": result.durationMs,
+      "gen_ai.response.duration_ms": result.durationMs,
     });
 
     if (result.timeToFirstTokenMs !== undefined) {
-      span.setAttribute("llm.time_to_first_token_ms", result.timeToFirstTokenMs);
+      span.setAttribute("gen_ai.response.time_to_first_token_ms", result.timeToFirstTokenMs);
     }
 
     if (result.costUsd !== undefined) {
-      span.setAttribute("agent.cost.llm_call_usd", result.costUsd);
+      span.setAttribute("gen_ai.usage.cost_usd", result.costUsd);
       // 更新 Baggage 中的累计成本
       if (this.baggage) {
         this.baggage.costSpentUsd =
@@ -1116,9 +1125,9 @@ class AgentTracer {
     const span = this.tracer.startSpan("tool_call", {
       kind: SpanKind.CLIENT,
       attributes: {
-        "agent.tool.name": toolName,
-        ...(toolVersion && { "agent.tool.version": toolVersion }),
-        "agent.name": this.agentName,
+        "gen_ai.tool.name": toolName,
+        ...(toolVersion && { "gen_ai.tool.version": toolVersion }),
+        "gen_ai.agent.name": this.agentName,
       },
     });
 
@@ -1134,11 +1143,11 @@ class AgentTracer {
    */
   endToolCallSpan(span: Span, result: ToolCallInfo): void {
     span.setAttributes({
-      "agent.tool.name": result.toolName,
-      "agent.tool.input_size": result.inputSizeBytes,
-      "agent.tool.output_size": result.outputSizeBytes,
-      "agent.tool.duration_ms": result.durationMs,
-      "agent.tool.success": result.success,
+      "gen_ai.tool.name": result.toolName,
+      "gen_ai.tool.input_size": result.inputSizeBytes,
+      "gen_ai.tool.output_size": result.outputSizeBytes,
+      "gen_ai.tool.duration_ms": result.durationMs,
+      "gen_ai.tool.success": result.success,
     });
 
     if (!result.success && result.errorMessage) {
@@ -1165,9 +1174,9 @@ class AgentTracer {
     const span = this.tracer.startSpan("sub_agent_call", {
       kind: SpanKind.PRODUCER,
       attributes: {
-        "agent.name": this.agentName,
-        "agent.sub_agent.name": subAgentName,
-        "agent.sub_agent.task": taskDescription,
+        "gen_ai.agent.name": this.agentName,
+        "gen_ai.agent.sub_agent.name": subAgentName,
+        "gen_ai.agent.sub_agent.task": taskDescription,
       },
     });
 
@@ -1194,8 +1203,8 @@ class AgentTracer {
     // 附加 Baggage 信息到结束的 Span
     if (this.baggage) {
       span.setAttributes({
-        "agent.baggage.cost_spent_usd": this.baggage.costSpentUsd ?? 0,
-        "agent.baggage.iteration_count": this.baggage.iterationCount ?? 0,
+        "gen_ai.agent.baggage.cost_spent_usd": this.baggage.costSpentUsd ?? 0,
+        "gen_ai.agent.baggage.iteration_count": this.baggage.iterationCount ?? 0,
       });
     }
 
@@ -1489,8 +1498,8 @@ class MultiAgentTraceContext {
       taskType: "delegated",
       input: message.taskDescription,
       metadata: {
-        "agent.parent": message.fromAgent,
-        "agent.delegation.reason": "task_decomposition",
+        "gen_ai.agent.parent": message.fromAgent,
+        "gen_ai.agent.delegation.reason": "task_decomposition",
       },
     });
 
@@ -1859,7 +1868,7 @@ class TraceAnalyzer {
           const model = String(
             span.attributes["gen_ai.request.model"] ?? "unknown"
           );
-          const cost = Number(span.attributes["agent.cost.llm_call_usd"] ?? 0);
+          const cost = Number(span.attributes["gen_ai.usage.cost_usd"] ?? 0);
           const existing = costByModel.get(model) ?? { cost: 0, calls: 0 };
           existing.cost += cost;
           existing.calls += 1;
@@ -1899,7 +1908,7 @@ class TraceAnalyzer {
       for (const span of trace.spans) {
         if (span.operationName === "tool_call") {
           const toolName = String(
-            span.attributes["agent.tool.name"] ?? "unknown"
+            span.attributes["gen_ai.tool.name"] ?? "unknown"
           );
           toolUsage.set(toolName, (toolUsage.get(toolName) ?? 0) + 1);
         }
@@ -1928,7 +1937,7 @@ class TraceAnalyzer {
       const maxIteration = Math.max(
         ...trace.spans
           .filter((s) => s.operationName === "agent_loop_iteration")
-          .map((s) => Number(s.attributes["agent.loop.iteration"] ?? 0)),
+          .map((s) => Number(s.attributes["gen_ai.agent.loop.iteration"] ?? 0)),
         0
       );
       if (maxIteration > 0) {
@@ -1997,7 +2006,7 @@ class TraceAnalyzer {
           span.status.code === SpanStatusCode.ERROR
         ) {
           const toolName = String(
-            span.attributes["agent.tool.name"] ?? "unknown"
+            span.attributes["gen_ai.tool.name"] ?? "unknown"
           );
           toolFailures.set(toolName, (toolFailures.get(toolName) ?? 0) + 1);
         }
@@ -2009,7 +2018,7 @@ class TraceAnalyzer {
         traces.flatMap((t) => t.spans).filter(
           (s) =>
             s.operationName === "tool_call" &&
-            s.attributes["agent.tool.name"] === tool
+            s.attributes["gen_ai.tool.name"] === tool
         ).length;
       const failRate = failCount / totalUsage;
 
@@ -2061,13 +2070,13 @@ class TraceAnalyzer {
               title: "并行化优化机会",
               description:
                 `Trace ${trace.traceId.slice(0, 8)} 中发现连续的工具调用 ` +
-                `(${current.attributes["agent.tool.name"]} → ${next.attributes["agent.tool.name"]})，` +
+                `(${current.attributes["gen_ai.tool.name"]} → ${next.attributes["gen_ai.tool.name"]})，` +
                 `如果它们之间没有数据依赖，可以考虑并行执行。`,
               data: {
                 traceId: trace.traceId,
                 tools: [
-                  current.attributes["agent.tool.name"],
-                  next.attributes["agent.tool.name"],
+                  current.attributes["gen_ai.tool.name"],
+                  next.attributes["gen_ai.tool.name"],
                 ],
               },
               recommendation: "评估工具调用之间的依赖关系，对无依赖的调用实施并行执行。",

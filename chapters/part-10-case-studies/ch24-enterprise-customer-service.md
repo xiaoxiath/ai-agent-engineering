@@ -131,9 +131,20 @@ class ConversationRouter {
   }
   
   private async validateResponse(response: Response, session: CustomerSession): Promise<Response> {
-    return response; // 合规检查、信息脱敏等
+    // PII 脱敏：替换身份证号、手机号、银行卡号
+    let sanitized = response.content
+      .replace(/\b\d{18}\b/g, '****')                    // 身份证号
+      .replace(/\b1[3-9]\d{9}\b/g, '****/****/****')     // 手机号
+      .replace(/\b\d{16,19}\b/g, '****-****-****-****');  // 银行卡号
+    // 合规检查：禁止承诺未经授权的退款或赔偿
+    const prohibitedPatterns = ['保证退款', '一定赔偿', '承诺解决'];
+    for (const pattern of prohibitedPatterns) {
+      if (sanitized.includes(pattern)) {
+        sanitized = sanitized.replace(pattern, '我们会根据政策处理');
+      }
+    }
+    return { ...response, content: sanitized };
   }
-}
 ```
 
 ## 24.4 工单管理系统
@@ -192,9 +203,35 @@ class TicketManager {
     return 'P3';
   }
   
-  private async autoAssign(ticket: Ticket): Promise<string> { return 'agent-pool'; }
-  private async extractTicketInfo(session: CustomerSession): Promise<TicketExtraction> { return {} as TicketExtraction; }
-  private getSLAConfig(category: string, priority: string): Ticket['sla'] { return { responseTime: 3600, resolutionTime: 86400 }; }
+  private async autoAssign(ticket: Ticket): Promise<string> {
+    const categoryAgentMap: Record<string, string[]> = {
+      billing: ['billing-team-1', 'billing-team-2'],
+      technical: ['tech-support-1', 'tech-support-2', 'tech-support-3'],
+      general: ['general-pool'],
+    };
+    const candidates = categoryAgentMap[ticket.category] ?? categoryAgentMap.general;
+    // 简单轮询分配，生产环境应考虑负载均衡
+    const idx = Math.floor(Math.random() * candidates.length);
+    return candidates[idx];
+  }
+  private async extractTicketInfo(session: CustomerSession): Promise<TicketExtraction> {
+    const messages = session.messages.map(m => m.content).join('\n');
+    const prompt = `Extract structured ticket information from this conversation:\n${messages}\n\nReturn JSON with: category, priority, summary, keyEntities`;
+    const response = await this.llm.complete(prompt);
+    try {
+      return JSON.parse(response);
+    } catch {
+      return { category: 'general', priority: 'medium', summary: messages.slice(0, 200), keyEntities: [] };
+    }
+  }
+  private getSLAConfig(category: string, priority: string): Ticket['sla'] {
+    const slaMatrix: Record<string, Record<string, { responseTime: number; resolutionTime: number }>> = {
+      billing:   { critical: { responseTime: 900, resolutionTime: 14400 }, high: { responseTime: 1800, resolutionTime: 28800 }, medium: { responseTime: 3600, resolutionTime: 86400 }, low: { responseTime: 7200, resolutionTime: 172800 } },
+      technical: { critical: { responseTime: 600, resolutionTime: 7200 }, high: { responseTime: 1800, resolutionTime: 28800 }, medium: { responseTime: 3600, resolutionTime: 86400 }, low: { responseTime: 7200, resolutionTime: 172800 } },
+      general:   { critical: { responseTime: 1800, resolutionTime: 28800 }, high: { responseTime: 3600, resolutionTime: 86400 }, medium: { responseTime: 7200, resolutionTime: 172800 }, low: { responseTime: 14400, resolutionTime: 259200 } },
+    };
+    return slaMatrix[category]?.[priority] ?? slaMatrix.general.medium;
+  }
 }
 ```
 

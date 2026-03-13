@@ -171,15 +171,110 @@ class CodebaseIndexer {
     this.fileIndex.set(filePath, newNode);
   }
   
-  private async discoverFiles(rootPath: string): Promise<string[]> { /* ... */ return []; }
-  private async parseFile(filePath: string): Promise<FileNode> { /* AST解析 */ return {} as FileNode; }
-  private resolveImport(imp: Import, fromPath: string): string | null { return null; }
-  private isRelevant(symbol: Symbol, position: number): boolean { return true; }
-  private extractSnippet(symbol: Symbol): ContextSnippet { return {} as ContextSnippet; }
-  private extractTypeSignature(exp: Export): ContextSnippet { return {} as ContextSnippet; }
-  private estimateTokens(snippet: ContextSnippet): number { return 0; }
-  private getCurrentEditContext(file: string, pos: number): string { return ''; }
-  private async semanticSearch(query: string, budget: number): Promise<ContextSnippet[]> { return []; }
+  private async discoverFiles(rootPath: string): Promise<string[]> {
+    const { readdir, stat } = await import('fs/promises');
+    const { join } = await import('path');
+    const files: string[] = [];
+    const ignorePatterns = ['node_modules', '.git', 'dist', 'build', '.next'];
+    const codeExtensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs'];
+
+    async function walk(dir: string) {
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (ignorePatterns.includes(entry.name)) continue;
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) await walk(fullPath);
+        else if (codeExtensions.some(ext => entry.name.endsWith(ext))) files.push(fullPath);
+      }
+    }
+    await walk(rootPath);
+    return files;
+  }
+  private async parseFile(filePath: string): Promise<FileNode> {
+    const { readFile } = await import('fs/promises');
+    const content = await readFile(filePath, 'utf-8');
+    const lines = content.split('\n');
+    const symbols: Symbol[] = [];
+    const imports: Import[] = [];
+    const exports: Export[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^import\s/.test(line)) imports.push({ source: line.match(/from\s+['"](.+)['"]/)?.[1] ?? '', name: line, line: i });
+      if (/^export\s+(function|class|const|interface|type)\s+(\w+)/.test(line)) {
+        const match = line.match(/^export\s+(function|class|const|interface|type)\s+(\w+)/);
+        if (match) exports.push({ name: match[2], kind: match[1], line: i });
+      }
+      if (/^(function|class|const|interface|type)\s+(\w+)/.test(line)) {
+        const match = line.match(/^(function|class|const|interface|type)\s+(\w+)/);
+        if (match) symbols.push({ name: match[2], kind: match[1], startLine: i, endLine: i, file: filePath });
+      }
+    }
+    return { path: filePath, content, symbols, imports, exports, lines: lines.length };
+  }
+  private resolveImport(imp: Import, fromPath: string): string | null {
+    const { dirname, resolve } = require('path');
+    const source = imp.source;
+    if (source.startsWith('.')) {
+      const dir = dirname(fromPath);
+      const resolved = resolve(dir, source);
+      const extensions = ['.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.js'];
+      for (const ext of extensions) {
+        const candidate = resolved.endsWith(ext) ? resolved : resolved + ext;
+        if (this.index.has(candidate)) return candidate;
+      }
+    }
+    return null; // 外部包引用不解析
+  }
+  private isRelevant(symbol: Symbol, position: number): boolean {
+    const distance = Math.abs(symbol.startLine - position);
+    const isNearby = distance < 50;
+    const isExported = symbol.kind === 'function' || symbol.kind === 'class';
+    const isTypeDefinition = symbol.kind === 'interface' || symbol.kind === 'type';
+    return isNearby || isExported || isTypeDefinition;
+  }
+  private extractSnippet(symbol: Symbol): ContextSnippet {
+    const fileNode = this.index.get(symbol.file);
+    if (!fileNode) return { content: '', tokenEstimate: 0, relevance: 0, source: symbol.file };
+    const lines = fileNode.content.split('\n');
+    const start = Math.max(0, symbol.startLine - 2);
+    const end = Math.min(lines.length, symbol.endLine + 20);
+    const content = lines.slice(start, end).join('\n');
+    return { content, tokenEstimate: this.estimateTokens({ content } as ContextSnippet), relevance: 0.8, source: `${symbol.file}:${symbol.startLine}` };
+  }
+  private extractTypeSignature(exp: Export): ContextSnippet {
+    const content = `${exp.kind} ${exp.name} // exported from line ${exp.line}`;
+    return { content, tokenEstimate: Math.ceil(content.length / 4), relevance: 0.6, source: `export:${exp.name}` };
+  }
+  private estimateTokens(snippet: ContextSnippet): number {
+    // 粗略估算：英文约 4 字符/token，代码约 3.5 字符/token
+    return Math.ceil(snippet.content.length / 3.5);
+  }
+  private getCurrentEditContext(file: string, pos: number): string {
+    const fileNode = this.index.get(file);
+    if (!fileNode) return '';
+    const lines = fileNode.content.split('\n');
+    const start = Math.max(0, pos - 20);
+    const end = Math.min(lines.length, pos + 20);
+    return lines.slice(start, end).join('\n');
+  }
+  private async semanticSearch(query: string, budget: number): Promise<ContextSnippet[]> {
+    const results: ContextSnippet[] = [];
+    const queryTerms = query.toLowerCase().split(/\s+/);
+    for (const [path, node] of this.index) {
+      for (const symbol of node.symbols) {
+        const nameMatch = queryTerms.some(term => symbol.name.toLowerCase().includes(term));
+        if (nameMatch) {
+          const snippet = this.extractSnippet(symbol);
+          snippet.relevance = queryTerms.filter(t => symbol.name.toLowerCase().includes(t)).length / queryTerms.length;
+          results.push(snippet);
+        }
+      }
+    }
+    results.sort((a, b) => b.relevance - a.relevance);
+    let tokenCount = 0;
+    return results.filter(s => { tokenCount += s.tokenEstimate; return tokenCount <= budget; });
+  }
 }
 ```
 
@@ -261,9 +356,31 @@ ${context.map(c => `### ${c.file}\n\`\`\`${c.language}\n${c.content}\n\`\`\``).j
     });
   }
   
-  private parseEditResponse(response: string): CodeEdit[] { return []; }
-  private detectLanguage(file: string): string { return 'typescript'; }
-  private async readFile(file: string): Promise<string> { return ''; }
+  private parseEditResponse(response: string): CodeEdit[] {
+    const edits: CodeEdit[] = [];
+    const diffBlockRegex = /```(?:diff|patch)?\n([\s\S]*?)```/g;
+    let match: RegExpExecArray | null;
+    while ((match = diffBlockRegex.exec(response)) !== null) {
+      const diffContent = match[1];
+      const fileMatch = diffContent.match(/^[-+]{3}\s+[ab]\/(.+)$/m);
+      const file = fileMatch?.[1] ?? 'unknown';
+      edits.push({ file, diff: diffContent, description: `Edit in ${file}` });
+    }
+    return edits.length > 0 ? edits : [{ file: 'unknown', diff: response, description: 'Raw edit' }];
+  }
+  private detectLanguage(file: string): string {
+    const ext = file.split('.').pop()?.toLowerCase() ?? '';
+    const langMap: Record<string, string> = {
+      ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+      py: 'python', go: 'go', rs: 'rust', java: 'java', rb: 'ruby',
+      cpp: 'cpp', c: 'c', cs: 'csharp', swift: 'swift', kt: 'kotlin',
+    };
+    return langMap[ext] ?? 'plaintext';
+  }
+  private async readFile(file: string): Promise<string> {
+    const { readFile } = await import('fs/promises');
+    return readFile(file, 'utf-8');
+  }
 }
 ```
 
@@ -320,9 +437,42 @@ class TestRunner {
     return [...new Set(testFiles)];
   }
   
-  private async executeTest(testFile: string): Promise<TestCaseResult> { return {} as TestCaseResult; }
-  private async suggestFix(result: TestCaseResult, edits: CodeEdit[]): Promise<CodeEdit | null> { return null; }
-  private async findDependentTests(file: string): Promise<string[]> { return []; }
+  private async executeTest(testFile: string): Promise<TestCaseResult> {
+    const { execSync } = await import('child_process');
+    try {
+      const output = execSync(`npx jest ${testFile} --json --no-coverage`, {
+        timeout: 30_000, encoding: 'utf-8',
+      });
+      const result = JSON.parse(output);
+      return {
+        file: testFile, passed: result.numPassedTests > 0 && result.numFailedTests === 0,
+        totalTests: result.numTotalTests, failedTests: result.numFailedTests,
+        output: result.testResults?.[0]?.message ?? '',
+      };
+    } catch (error: any) {
+      return { file: testFile, passed: false, totalTests: 0, failedTests: 1, output: error.message };
+    }
+  }
+  private async suggestFix(result: TestCaseResult, edits: CodeEdit[]): Promise<CodeEdit | null> {
+    if (result.passed) return null;
+    const relatedEdit = edits.find(e => result.output.includes(e.file));
+    if (!relatedEdit) return null;
+    const prompt = `Test failed in ${result.file}:\n${result.output}\n\nOriginal edit:\n${relatedEdit.diff}\n\nSuggest a fix:`;
+    const fixResponse = await this.llm.complete(prompt);
+    return { file: relatedEdit.file, diff: fixResponse, description: `Fix for ${result.file}` };
+  }
+  private async findDependentTests(file: string): Promise<string[]> {
+    const { readdir } = await import('fs/promises');
+    const { basename, dirname, join } = await import('path');
+    const base = basename(file, '.ts').replace('.', '');
+    const dir = dirname(file);
+    const testPatterns = [`${base}.test.ts`, `${base}.spec.ts`, `__tests__/${base}.ts`];
+    const testFiles: string[] = [];
+    for (const pattern of testPatterns) {
+      try { await import('fs/promises').then(fs => fs.access(join(dir, pattern))); testFiles.push(join(dir, pattern)); } catch {}
+    }
+    return testFiles;
+  }
 }
 ```
 
@@ -399,13 +549,27 @@ class CodingAgent {
   }
   
   private async addressReviewFeedback(edits: CodeEdit[], review: ReviewResult): Promise<CodeEdit[]> {
-    return edits; // 根据审查反馈迭代
+    if (review.issues.length === 0) return edits;
+    const updatedEdits = [...edits];
+    for (const issue of review.issues) {
+      const prompt = `Review feedback for ${issue.file}:\nIssue: ${issue.description}\nSeverity: ${issue.severity}\n\nOriginal edit:\n${edits.find(e => e.file === issue.file)?.diff}\n\nGenerate an improved edit that addresses this feedback:`;
+      const fixResponse = await this.llm.complete(prompt);
+      const idx = updatedEdits.findIndex(e => e.file === issue.file);
+      if (idx >= 0) updatedEdits[idx] = { ...updatedEdits[idx], diff: fixResponse, description: `Addressed: ${issue.description}` };
+    }
+    return updatedEdits;
   }
-  
   private async createPullRequest(issue: GitIssue, edits: CodeEdit[], plan: TaskPlan): Promise<PullRequest> {
-    return {} as PullRequest;
+    const branchName = `agent/fix-${issue.id}-${Date.now()}`;
+    const title = `[Agent] ${plan.summary ?? issue.title}`;
+    const body = [
+      `## Summary\n${plan.summary ?? 'Automated fix'}`,
+      `## Changes\n${edits.map(e => `- \`${e.file}\`: ${e.description}`).join('\n')}`,
+      `## Related Issue\nCloses #${issue.id}`,
+      `## Test Results\n${plan.testResults?.passed ? '✅ All tests passed' : '⚠️ Some tests may need attention'}`,
+    ].join('\n\n');
+    return { branch: branchName, title, body, files: edits.map(e => e.file), isDraft: true };
   }
-}
 ```
 
 ## 23.5 上下文工程实践
@@ -507,9 +671,26 @@ class CodingAssistantMetrics {
     };
   }
   
-  private record(metric: string, value: number): void { /* ... */ }
-  private analyzeRejectionReason(event: AssistantEvent): void { /* ... */ }
-  private async getMetrics(period: string): Promise<any> { return {}; }
+  private record(metric: string, value: number): void {
+    const key = `${metric}_${new Date().toISOString().slice(0, 10)}`;
+    if (!this.metrics.has(key)) this.metrics.set(key, []);
+    this.metrics.get(key)!.push(value);
+  }
+  private analyzeRejectionReason(event: AssistantEvent): void {
+    const reasons = ['incorrect_logic', 'style_mismatch', 'incomplete', 'wrong_file', 'other'];
+    const reason = event.metadata?.rejectionReason ?? 'other';
+    this.record(`rejection_${reason}`, 1);
+  }
+  private async getMetrics(period: string): Promise<any> {
+    const relevantKeys = [...this.metrics.keys()].filter(k => k.includes(period));
+    const result: Record<string, { count: number; avg: number; total: number }> = {};
+    for (const key of relevantKeys) {
+      const values = this.metrics.get(key) ?? [];
+      const total = values.reduce((a, b) => a + b, 0);
+      result[key] = { count: values.length, avg: values.length > 0 ? total / values.length : 0, total };
+    }
+    return result;
+  }
 }
 ```
 

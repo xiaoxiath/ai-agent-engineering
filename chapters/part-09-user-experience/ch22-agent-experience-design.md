@@ -6780,7 +6780,479 @@ class AXExperimentManager {
 ---
 
 
-## 22.10 本章小结
+
+## 22.10 Artifact 与 Canvas：从对话到工作区
+
+传统的 AI 交互范式是**线性对话**：用户提问，AI 在聊天窗口中回复文本，用户手动复制结果到目标应用。这种模式在简单问答场景下运作良好，但当任务涉及代码编写、文档创作或数据可视化时，"一切都在聊天气泡里"的限制就变得尤为突出。2024 年，Claude Artifacts 和 ChatGPT Canvas 的相继推出，标志着 AI 交互从**对话范式**向**工作区范式**的重要跃迁。
+
+### 22.10.1 范式转换：从线性对话到并排创作
+
+**传统对话模式的痛点：**
+
+```
+用户: "帮我写一个 React 登录表单"
+AI:   "好的，以下是代码：```tsx ... ``` "     ← 代码嵌在聊天气泡中
+用户: "把密码字段改成支持显示/隐藏"
+AI:   "已修改：```tsx ... ``` "                 ← 完整代码再次出现在新气泡中
+用户: (需要手动对比两次回复，找出差异，复制最新版本)
+```
+
+**工作区模式的改进：**
+
+```
+用户: "帮我写一个 React 登录表单"
+AI:   [聊天区] "我来创建一个登录表单"
+      [工作区] ← 实时渲染可交互的登录组件
+
+用户: "把密码字段改成支持显示/隐藏"
+AI:   [聊天区] "已添加密码可见性切换"
+      [工作区] ← 原地更新，高亮显示变更部分，可回退到上一版本
+```
+
+这一转变的核心是**关注点分离**：聊天区负责意图沟通与决策对话，工作区负责内容呈现与协作编辑。
+
+### 22.10.2 Claude Artifacts：侧边栏渲染与版本管理
+
+Claude 的 Artifacts 功能在对话窗口右侧打开一个**独立的渲染面板**，将代码、文档、SVG 图形和交互式组件从聊天流中提取出来，赋予它们独立的生命周期。
+
+**关键设计特征：**
+
+- **类型化 Artifact**：每个 Artifact 有明确的类型（代码、文档、HTML 应用、SVG、Mermaid 图表），系统根据类型选择渲染方式
+- **版本链**：每次修改创建新版本，用户可以浏览完整的版本历史并回退到任意版本
+- **交互式渲染**：HTML/React 类型的 Artifact 直接在沙箱中运行，用户可以与渲染结果交互（点击按钮、输入数据、查看动画）
+- **引用对话**：Artifact 与生成它的对话轮次保持关联，用户可以追溯"为什么是这个版本"
+
+```typescript
+// ============================================================
+// Artifact 系统核心类型定义
+// ============================================================
+
+/** Artifact 类型枚举 */
+type ArtifactType =
+  | 'code'           // 源代码（语法高亮，可复制）
+  | 'document'       // 长文档（Markdown 渲染）
+  | 'html-app'       // 可交互的 HTML/React 应用
+  | 'svg'            // SVG 矢量图
+  | 'mermaid'        // Mermaid 图表
+  | 'spreadsheet';   // 表格数据
+
+/** Artifact 规格定义 */
+interface ArtifactSpec {
+  /** 唯一标识 */
+  id: string;
+  /** Artifact 类型 */
+  type: ArtifactType;
+  /** 显示标题 */
+  title: string;
+  /** 内容主体 */
+  content: string;
+  /** 编程语言（type 为 'code' 时） */
+  language?: string;
+  /** 当前版本号 */
+  version: number;
+  /** 是否可渲染为交互式预览 */
+  renderable: boolean;
+  /** 创建此版本的对话轮次 ID */
+  sourceMessageId: string;
+  /** 创建时间 */
+  createdAt: number;
+}
+
+/** Artifact 版本管理器 */
+class ArtifactVersionManager {
+  /** artifact ID → 版本历史 */
+  private history = new Map<string, ArtifactSpec[]>();
+
+  /** 创建新 Artifact */
+  create(spec: Omit<ArtifactSpec, 'version' | 'createdAt'>): ArtifactSpec {
+    const artifact: ArtifactSpec = {
+      ...spec,
+      version: 1,
+      createdAt: Date.now(),
+    };
+    this.history.set(spec.id, [artifact]);
+    return artifact;
+  }
+
+  /** 更新 Artifact（创建新版本） */
+  update(
+    id: string,
+    changes: Partial<Pick<ArtifactSpec, 'title' | 'content' | 'language'>>,
+    sourceMessageId: string
+  ): ArtifactSpec {
+    const versions = this.history.get(id);
+    if (!versions || versions.length === 0) {
+      throw new Error(`Artifact '${id}' not found`);
+    }
+
+    const current = versions[versions.length - 1];
+    const newVersion: ArtifactSpec = {
+      ...current,
+      ...changes,
+      version: current.version + 1,
+      sourceMessageId,
+      createdAt: Date.now(),
+    };
+
+    versions.push(newVersion);
+    return newVersion;
+  }
+
+  /** 回退到指定版本 */
+  rollback(id: string, targetVersion: number): ArtifactSpec {
+    const versions = this.history.get(id);
+    if (!versions) throw new Error(`Artifact '${id}' not found`);
+
+    const target = versions.find(v => v.version === targetVersion);
+    if (!target) throw new Error(`Version ${targetVersion} not found`);
+
+    // 创建一个新版本，内容来自目标版本
+    const rollbackVersion: ArtifactSpec = {
+      ...target,
+      version: versions[versions.length - 1].version + 1,
+      sourceMessageId: `rollback-to-v${targetVersion}`,
+      createdAt: Date.now(),
+    };
+
+    versions.push(rollbackVersion);
+    return rollbackVersion;
+  }
+
+  /** 获取版本差异摘要 */
+  getVersionDiff(id: string, fromVersion: number, toVersion: number): VersionDiff {
+    const versions = this.history.get(id);
+    if (!versions) throw new Error(`Artifact '${id}' not found`);
+
+    const from = versions.find(v => v.version === fromVersion);
+    const to = versions.find(v => v.version === toVersion);
+    if (!from || !to) throw new Error('Version not found');
+
+    return {
+      artifactId: id,
+      from: fromVersion,
+      to: toVersion,
+      titleChanged: from.title !== to.title,
+      contentLengthDelta: to.content.length - from.content.length,
+      timestamp: to.createdAt,
+    };
+  }
+
+  /** 获取完整版本历史 */
+  getHistory(id: string): ArtifactSpec[] {
+    return [...(this.history.get(id) || [])];
+  }
+}
+
+interface VersionDiff {
+  artifactId: string;
+  from: number;
+  to: number;
+  titleChanged: boolean;
+  contentLengthDelta: number;
+  timestamp: number;
+}
+```
+
+### 22.10.3 ChatGPT Canvas：协作式文档编辑
+
+与 Claude Artifacts 的"侧边渲染面板"不同，ChatGPT Canvas 采用了更激进的设计——**直接用协作编辑器替换聊天窗口**。当用户开始一个写作或编码任务时，对话界面切换为类似 Google Docs 的编辑器，用户和 AI 在同一文档上协作。
+
+**关键设计特征：**
+
+- **内联编辑**：AI 的修改直接出现在文档中，以高亮标注。用户也可以选中文本让 AI 修改特定段落
+- **双模式**：写作模式（文章、报告、邮件）和编码模式（代码编辑、调试、重构），各自提供不同的上下文快捷操作
+- **快捷操作栏**：写作模式提供"调整长度"、"调整阅读水平"、"添加 Emoji"等操作；编码模式提供"添加注释"、"修复 Bug"、"添加日志"等操作
+- **全文感知**：AI 始终感知完整文档上下文，而非仅回复最近一条消息
+
+```typescript
+// ============================================================
+// Canvas 协作编辑模型
+// ============================================================
+
+/** Canvas 文档状态 */
+interface CanvasDocument {
+  id: string;
+  mode: 'writing' | 'coding';
+  content: string;
+  language?: string;
+  /** AI 编辑的区域标记 */
+  aiEdits: InlineEdit[];
+  /** 用户选区（用于指示 AI 编辑特定部分） */
+  userSelection?: TextSelection;
+}
+
+/** 内联编辑标记 */
+interface InlineEdit {
+  /** 编辑区域的起始偏移 */
+  startOffset: number;
+  /** 编辑区域的结束偏移 */
+  endOffset: number;
+  /** 原始文本 */
+  originalText: string;
+  /** 替换文本 */
+  newText: string;
+  /** 编辑类型 */
+  editType: 'insertion' | 'deletion' | 'replacement';
+  /** 是否已被用户接受 */
+  accepted: boolean;
+}
+
+/** 用户文本选区 */
+interface TextSelection {
+  start: number;
+  end: number;
+  /** 用户对选中文本的指令 */
+  instruction?: string;
+}
+
+/** Canvas 快捷操作定义 */
+interface CanvasShortcut {
+  id: string;
+  label: string;
+  mode: 'writing' | 'coding' | 'both';
+  /** 快捷操作对应的 Prompt 模板 */
+  promptTemplate: string;
+  /** 图标 */
+  icon: string;
+}
+
+/** 预置快捷操作 */
+const CANVAS_SHORTCUTS: CanvasShortcut[] = [
+  // 写作模式
+  { id: 'adjust-length', label: '调整长度', mode: 'writing',
+    promptTemplate: '将选中内容的长度调整为{{target}}', icon: '↔️' },
+  { id: 'reading-level', label: '调整阅读水平', mode: 'writing',
+    promptTemplate: '将选中内容调整为{{level}}的阅读水平', icon: '📊' },
+  { id: 'polish', label: '润色', mode: 'writing',
+    promptTemplate: '润色选中内容，保持原意但提升表达质量', icon: '✨' },
+  // 编码模式
+  { id: 'add-comments', label: '添加注释', mode: 'coding',
+    promptTemplate: '为选中的代码添加详细的行内注释', icon: '💬' },
+  { id: 'fix-bugs', label: '修复 Bug', mode: 'coding',
+    promptTemplate: '检查并修复选中代码中的潜在 Bug', icon: '🔧' },
+  { id: 'add-logging', label: '添加日志', mode: 'coding',
+    promptTemplate: '在关键位置添加结构化日志输出', icon: '📝' },
+  { id: 'port-language', label: '转换语言', mode: 'coding',
+    promptTemplate: '将选中代码转换为{{targetLanguage}}', icon: '🔄' },
+];
+```
+
+### 22.10.4 构建 Artifact 风格 UX 的设计原则
+
+如果你在自己的 Agent 产品中实现类似的 Artifact/Canvas 体验，以下是关键的设计原则和工程考量：
+
+**原则 1：内容与对话分离**
+
+将 Agent 的输出分为两类：**对话性内容**（解释、确认、提问）留在聊天区，**创作性内容**（代码、文档、图表）提取到工作区。这种分离减少聊天区的信息过载，同时让创作内容获得更好的渲染和交互空间。
+
+**原则 2：版本化一切可编辑内容**
+
+每次 AI 修改都应创建新版本而非覆盖。用户需要能浏览历史、对比差异和回退。这不仅是功能需求，更是**信任基础**——用户不会担心 AI 的修改破坏了之前满意的结果。
+
+**原则 3：渐进式渲染**
+
+对于复杂的 Artifact（如可交互的 React 应用），采用**增量渲染**策略：先展示代码骨架 → 语法高亮 → 类型检查通过 → 编译成功 → 渲染交互式预览。每一步都给用户反馈，避免长时间白屏。
+
+```typescript
+// ============================================================
+// Artifact 渲染管道
+// ============================================================
+
+/** 渲染阶段 */
+type RenderStage =
+  | 'raw'           // 原始文本
+  | 'highlighted'   // 语法高亮
+  | 'validated'     // 类型/语法检查通过
+  | 'compiled'      // 编译成功
+  | 'interactive';  // 可交互预览
+
+/** 渲染管道 */
+class ArtifactRenderPipeline {
+  private stageListeners = new Map<RenderStage, ((artifact: ArtifactSpec) => void)[]>();
+
+  /** 注册阶段完成回调 */
+  onStage(stage: RenderStage, callback: (artifact: ArtifactSpec) => void): void {
+    const listeners = this.stageListeners.get(stage) || [];
+    listeners.push(callback);
+    this.stageListeners.set(stage, listeners);
+  }
+
+  /** 执行渲染管道 */
+  async render(artifact: ArtifactSpec): Promise<RenderResult> {
+    const stages: RenderStage[] = this.getStagesForType(artifact.type);
+    const results: StageResult[] = [];
+
+    for (const stage of stages) {
+      try {
+        const result = await this.executeStage(stage, artifact);
+        results.push({ stage, success: true, output: result });
+        // 每完成一个阶段就通知 UI 更新
+        this.notifyListeners(stage, artifact);
+      } catch (error) {
+        results.push({ stage, success: false, error: String(error) });
+        // 渲染失败时降级到上一个成功阶段
+        break;
+      }
+    }
+
+    const lastSuccess = results.filter(r => r.success).pop();
+    return {
+      artifactId: artifact.id,
+      finalStage: lastSuccess?.stage || 'raw',
+      stages: results,
+    };
+  }
+
+  private getStagesForType(type: ArtifactType): RenderStage[] {
+    switch (type) {
+      case 'html-app':
+        return ['raw', 'highlighted', 'validated', 'compiled', 'interactive'];
+      case 'code':
+        return ['raw', 'highlighted', 'validated'];
+      case 'document':
+        return ['raw', 'highlighted']; // Markdown 渲染
+      case 'svg':
+      case 'mermaid':
+        return ['raw', 'validated', 'interactive'];
+      default:
+        return ['raw'];
+    }
+  }
+
+  private async executeStage(
+    stage: RenderStage,
+    artifact: ArtifactSpec
+  ): Promise<string> {
+    // 各阶段的具体渲染逻辑
+    switch (stage) {
+      case 'highlighted':
+        return this.applySyntaxHighlighting(artifact);
+      case 'validated':
+        return this.validateSyntax(artifact);
+      case 'compiled':
+        return this.compileToExecutable(artifact);
+      case 'interactive':
+        return this.createInteractivePreview(artifact);
+      default:
+        return artifact.content;
+    }
+  }
+
+  private applySyntaxHighlighting(artifact: ArtifactSpec): string {
+    // 基于语言类型应用语法高亮
+    return `<highlighted lang="${artifact.language}">${artifact.content}</highlighted>`;
+  }
+
+  private validateSyntax(artifact: ArtifactSpec): string {
+    // 基础语法检查
+    return artifact.content;
+  }
+
+  private compileToExecutable(artifact: ArtifactSpec): string {
+    // 编译为可执行代码（沙箱环境）
+    return artifact.content;
+  }
+
+  private createInteractivePreview(artifact: ArtifactSpec): string {
+    // 在隔离的 iframe/sandbox 中渲染
+    return `<sandbox>${artifact.content}</sandbox>`;
+  }
+
+  private notifyListeners(stage: RenderStage, artifact: ArtifactSpec): void {
+    const listeners = this.stageListeners.get(stage) || [];
+    for (const listener of listeners) {
+      listener(artifact);
+    }
+  }
+}
+
+interface StageResult {
+  stage: RenderStage;
+  success: boolean;
+  output?: string;
+  error?: string;
+}
+
+interface RenderResult {
+  artifactId: string;
+  finalStage: RenderStage;
+  stages: StageResult[];
+}
+```
+
+### 22.10.5 对 Agent 架构的影响
+
+Artifact/Canvas 范式不仅是 UI 层的变化，它对 Agent 的底层架构提出了新的要求：
+
+**1. 结构化输出格式感知**
+
+Agent 不再仅仅输出自然语言文本，还需要理解何时应创建 Artifact、何时应更新已有 Artifact、何时应在对话中直接回复。这要求 Agent 具备**输出路由**能力。
+
+**2. 扩展的工具调用模式**
+
+传统 Agent 的工具是外部 API 调用（搜索、计算、数据库查询）。在 Artifact 范式下，Agent 需要新的**内部工具**来操作工作区：
+
+```typescript
+// ============================================================
+// Artifact 相关的 Agent 工具定义
+// ============================================================
+
+/** Artifact 工具集 */
+interface ArtifactTools {
+  /** 创建新 Artifact */
+  create_artifact: {
+    params: {
+      type: ArtifactType;
+      title: string;
+      content: string;
+      language?: string;
+    };
+    returns: { artifactId: string; version: number };
+  };
+
+  /** 更新已有 Artifact */
+  update_artifact: {
+    params: {
+      artifactId: string;
+      /** 完整替换或增量编辑 */
+      updateMode: 'full-replace' | 'patch';
+      content: string;
+      /** patch 模式下的编辑操作 */
+      patches?: Array<{
+        operation: 'insert' | 'delete' | 'replace';
+        offset: number;
+        length?: number;
+        text?: string;
+      }>;
+    };
+    returns: { version: number; changesSummary: string };
+  };
+
+  /** 渲染 Artifact 为可交互预览 */
+  render_artifact: {
+    params: {
+      artifactId: string;
+      /** 渲染目标 */
+      target: 'preview' | 'fullscreen' | 'export';
+    };
+    returns: { rendered: boolean; previewUrl?: string };
+  };
+}
+```
+
+**3. 更长的上下文需求**
+
+每个 Artifact 的完整版本历史都可能被纳入上下文。一个经过 10 次迭代的代码 Artifact 意味着 Agent 需要感知完整的修改历史。这对上下文窗口管理提出了更高要求——需要智能地摘要历史版本、只保留最近的完整版本和变更差异。
+
+**4. 协作状态同步**
+
+当用户直接在工作区编辑内容（而非通过对话指令），Agent 需要感知这些"带外修改"并更新自己的内部状态。这要求建立双向的状态同步机制，类似于实时协作编辑中的 Operational Transformation（OT）或 CRDT。
+
+> **与 22.3 的联系：** Artifact/Canvas 交互本质上是本章 `ConversationStateMachine` 的扩展——对话状态机需要新增 `editing` 状态和 `artifact_created`、`artifact_updated` 等事件，以支持在对话与工作区之间的流畅切换。
+
+---
+
+## 22.11 本章小结
 
 ### 核心要点
 

@@ -3230,6 +3230,99 @@ interface BillingSummary {
 }
 ```
 
+
+### 21.3.7 实战案例：Smithery.ai — MCP Server 注册中心
+
+在第 20 章中我们深入探讨了 MCP（Model Context Protocol）协议的技术细节。随着 MCP 生态的爆发式增长，一个关键问题浮出水面：**如何发现和管理数以千计的 MCP Server？** Smithery.ai 正是解决这一问题的事实标准（de facto）注册中心，其角色类似于 npm 之于 Node.js 包、Docker Hub 之于容器镜像。
+
+**平台定位与规模**
+
+截至 2025 年中，Smithery 已收录 **3,000+ MCP Server**，涵盖数据库连接器、API 集成、文件系统工具、搜索引擎等各类能力。开发者可以通过 Web 界面浏览、搜索和评估 MCP Server，也可以通过 CLI 直接安装。
+
+**CLI 驱动的安装体验**
+
+Smithery 提供了类似 npm 的命令行工具，实现一键安装和配置：
+
+```bash
+# 安装 MCP Server 到本地开发环境
+npx @smithery/cli install @anthropic/filesystem-server
+
+# 安装并指定运行模式
+npx @smithery/cli install @database/postgres-server --mode hosted
+
+# 列出已安装的 MCP Server
+npx @smithery/cli list
+
+# 更新所有已安装的 Server
+npx @smithery/cli update --all
+```
+
+**部署模式**
+
+Smithery 支持两种部署模式，适应不同的安全和性能需求：
+
+```typescript
+// ============================================================
+// Smithery MCP Server 部署模式
+// ============================================================
+
+/** Smithery 部署配置 */
+interface SmitheryDeploymentConfig {
+  /** 服务器标识，如 "@anthropic/filesystem-server" */
+  serverName: string;
+  /** 部署模式 */
+  mode: 'hosted' | 'local';
+  /** hosted 模式：Smithery 云端托管，零运维 */
+  hostedConfig?: {
+    region: 'us-east' | 'eu-west' | 'ap-southeast';
+    /** 自动扩缩容 */
+    autoScale: boolean;
+    maxInstances: number;
+  };
+  /** local 模式：本地运行，数据不出域 */
+  localConfig?: {
+    /** 本地端口 */
+    port: number;
+    /** 环境变量（数据库连接串、API 密钥等） */
+    envVars: Record<string, string>;
+    /** 沙箱隔离级别 */
+    isolation: 'none' | 'process' | 'container';
+  };
+}
+
+/** Smithery 注册表条目 */
+interface SmitheryRegistryEntry {
+  name: string;
+  description: string;
+  version: string;
+  author: string;
+  /** 下载量 */
+  downloads: number;
+  /** 安全评分（0-100） */
+  securityScore: number;
+  /** 支持的传输协议 */
+  transports: ('stdio' | 'sse' | 'streamable-http')[];
+  /** 所需权限 */
+  permissions: string[];
+  /** 最后更新时间 */
+  lastUpdated: string;
+  /** 兼容的 MCP 协议版本 */
+  mcpVersion: string;
+}
+```
+
+**安全考量**
+
+作为开放的注册中心，Smithery 面临与 npm 类似的供应链安全挑战。社区已报告过部分 MCP Server 存在**路径遍历漏洞**（path traversal），攻击者可能通过恶意 Server 读取宿主机的敏感文件。安全建议：
+
+- **最小权限原则**：仅授予 MCP Server 必要的文件系统和网络权限
+- **沙箱运行**：在容器或受限进程中运行第三方 Server
+- **审查源码**：安装前检查 Server 的权限声明和代码实现
+- **关注安全评分**：优先选择 Smithery 安全评分较高的 Server
+- **锁定版本**：避免自动更新引入未审查的变更
+
+> **与 21.3.5 的联系：** Smithery 的安全挑战正是本节 `SecurityReviewPipeline` 要解决的问题。企业如果要大规模采用 MCP Server，建议在 Smithery 之上叠加自建的安全审查流程。
+
 ---
 ## 21.4 平台适配器
 
@@ -7353,6 +7446,144 @@ class WorkflowTemplateLibrary {
   }
 }
 ```
+
+
+### 21.7.5 商业平台：Microsoft Copilot Studio
+
+除了自建编排平台，企业也可以选择商业化的 Agent 构建平台。**Microsoft Copilot Studio**（原 Power Virtual Agents 的演进）是目前企业级 Agent 构建领域最成熟的低代码平台之一。
+
+**平台定位**
+
+Copilot Studio 面向**企业 IT 团队和业务分析师**，提供无代码/低代码的 Agent 构建界面。其核心优势在于与 Microsoft 365 生态的深度集成——Agent 可以直接访问 SharePoint 文档、Outlook 邮件、Teams 对话和 Dynamics 365 数据。
+
+**核心能力**
+
+```typescript
+// ============================================================
+// Microsoft Copilot Studio 能力模型
+// ============================================================
+
+/** Copilot Studio Agent 定义 */
+interface CopilotStudioAgent {
+  /** Agent 名称 */
+  name: string;
+  /** 描述 */
+  description: string;
+  /** 知识源：Agent 的 RAG 数据来源 */
+  knowledgeSources: CopilotKnowledgeSource[];
+  /** 触发器：何时激活 Agent */
+  triggers: CopilotTrigger[];
+  /** 插件：扩展 Agent 能力 */
+  plugins: CopilotPlugin[];
+  /** 部署目标 */
+  deploymentTargets: ('teams' | 'web' | 'dynamics365' | 'power-apps')[];
+}
+
+interface CopilotKnowledgeSource {
+  type: 'sharepoint' | 'website' | 'dataverse' | 'file-upload' | 'custom-api';
+  /** SharePoint 站点 URL 或网站地址 */
+  uri: string;
+  /** 数据刷新频率 */
+  refreshInterval: 'realtime' | 'hourly' | 'daily';
+}
+
+interface CopilotPlugin {
+  type: 'prebuilt' | 'custom-connector' | 'power-automate-flow' | 'openai-plugin';
+  name: string;
+  /** Power Platform connector 可直接复用 1,400+ 企业连接器 */
+  connectorId?: string;
+}
+
+interface CopilotTrigger {
+  type: 'keyword' | 'intent' | 'event' | 'scheduled';
+  condition: string;
+  /** Teams 中的 @mention 触发 */
+  teamsAtMention?: boolean;
+}
+```
+
+**核心特性：**
+
+- **Custom Copilots**：基于企业私有知识库构建的定制化 AI 助手
+- **Plugin 生态**：复用 Power Platform 1,400+ 企业连接器（SAP、ServiceNow、Salesforce 等）
+- **Teams 深度集成**：Agent 作为 Teams App 直接嵌入协作流程
+- **Generative AI 编排**：内置 GPT 模型支持，支持 Orchestrator 自动路由到合适的知识源或插件
+- **安全与治理**：继承 Azure AD 权限体系，DLP 策略自动生效
+
+**定价模型**
+
+Copilot Studio 采用**按用户/月**的订阅模式，约 **$200/用户/月**（包含 25,000 条消息）。对于已经大量投资 Microsoft 生态的企业，这一价格在减少自建成本的同时提供了快速上线的路径。
+
+> **适用场景：** 企业内部 IT 帮助台、HR 自助服务、知识库问答、审批流程自动化。如果你的组织已深度使用 Microsoft 365，Copilot Studio 是 Agent 落地的低阻力路径。
+
+### 21.7.6 商业平台：Salesforce Agentforce
+
+**Salesforce Agentforce**（2024 年 9 月发布）是 CRM 巨头 Salesforce 推出的 AI Agent 平台，目标是将 Agent 嵌入客户关系管理的每个环节。
+
+**平台架构**
+
+Agentforce 的核心是 **Atlas Reasoning Engine**——一个结合了链式推理（chain-of-thought）与 CRM 数据上下文的推理引擎。Agent 在回答客户问题或执行操作时，会自动关联客户的历史订单、服务记录、偏好等结构化数据。
+
+```typescript
+// ============================================================
+// Salesforce Agentforce 架构模型
+// ============================================================
+
+/** Agentforce Agent 配置 */
+interface AgentforceConfig {
+  /** Agent 类型 */
+  agentType: 'service' | 'sales' | 'commerce' | 'marketing' | 'custom';
+  /** Atlas Reasoning Engine 配置 */
+  reasoningConfig: {
+    /** 启用链式推理 */
+    chainOfThought: boolean;
+    /** CRM 数据上下文：自动注入相关客户数据 */
+    crmGrounding: boolean;
+    /** 可访问的 Salesforce 对象 */
+    allowedObjects: ('Account' | 'Contact' | 'Case' | 'Opportunity' | 'Order')[];
+    /** 信任层：Data Cloud 数据掩码和权限控制 */
+    trustLayer: {
+      piiMasking: boolean;
+      fieldLevelSecurity: boolean;
+      auditTrail: boolean;
+    };
+  };
+  /** 预置 Action 库 */
+  actions: AgentforceAction[];
+  /** 护栏 */
+  guardrails: {
+    maxTurns: number;
+    escalationPolicy: 'auto' | 'manual';
+    /** 禁止操作（如：不允许 Agent 自行退款超过 $100） */
+    restrictions: string[];
+  };
+}
+
+interface AgentforceAction {
+  type: 'flow' | 'apex' | 'prompt-template' | 'mulesoft-api';
+  name: string;
+  description: string;
+  /** Agent 触发此 Action 时需要的参数 */
+  inputSchema: Record<string, unknown>;
+}
+```
+
+**预置 Agent 类型：**
+
+- **Service Agent**：替代传统 Chatbot，处理客户服务请求，支持自动退款、订单查询、预约变更
+- **Sales Agent**：辅助销售团队，自动生成客户画像、推荐跟进策略、撰写个性化邮件
+- **Commerce Agent**：电商场景下的购物助手，基于浏览历史和购买记录推荐商品
+- **Marketing Agent**：自动生成营销活动内容、优化投放策略
+
+**定价演进**
+
+Agentforce 的定价策略经历了一次重要转型：
+- **2024 年 9 月**（发布时）：按对话计费，**$2/次对话**
+- **2025 年 5 月**：转向 **Flex Credits 消费模型**，统一积分兑换各类 AI 服务
+
+这一转变反映了 Agent 平台定价的行业趋势——从简单的按次计费转向更灵活的消费式计费，让客户能在不同 AI 功能之间灵活分配预算。
+
+> **适用场景：** 已部署 Salesforce CRM 的企业，需要在客户服务、销售和电商环节引入 AI Agent。Agentforce 的最大优势在于与 CRM 数据的原生集成——Agent 天然理解客户上下文，无需额外的数据管道。
 
 ---
 ## 21.8 企业集成模式

@@ -2269,11 +2269,10 @@ console.log(lazyState.messages.length);  // 触发 loadMessagesFromDB
 
 在下一章（第 5 章：**Context Engineering — 上下文工程**）中，我们将利用本章构建的状态管理体系，探讨：
 
-- **Tool 注册表**：动态注册/注销 Tool，支持版本化和热更新。
-- **Tool 沙箱**：在隔离环境中执行 Tool，防止副作用泄漏。
-- **Tool 结果缓存**：利用状态中的 `toolCalls` 历史实现智能缓存。
-- **Tool 编排**：基于状态中的执行计划，自动调度并行/串行 Tool 调用。
-
+- **System Prompt 设计**：如何为 Agent 编写高质量的系统提示词，建立行为基线。
+- **上下文压缩（Compaction）**：在有限的 Token 预算内保留最重要的信息。
+- **结构化笔记（Scratchpad）**：利用状态中的结构化数据增强 Agent 的工作记忆。
+- **Sub-Agent 上下文隔离**：在 Multi-Agent 场景中实现上下文的安全隔离。
 本章的 `AgentState`、`Reducer`、`CheckpointManager` 和 `ResilientAgentEngine` 将作为后续所有章节的基础设施。
 
 ---

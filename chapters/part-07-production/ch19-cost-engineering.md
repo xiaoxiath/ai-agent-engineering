@@ -10,9 +10,9 @@
 
 ## 19.1 Agent 成本模型
 
-### 19.1.1 2025 主流模型定价全景
+### 19.1.1 2026 主流模型定价全景
 
-要优化成本，首先需要精确了解每一分钱花在了哪里。以下是 2025 年主流大语言模型的完整定价数据：
+要优化成本，首先需要精确了解每一分钱花在了哪里。以下是 2026 年主流大语言模型的完整定价数据：
 
 ```typescript
 // ============================================================
@@ -22,7 +22,7 @@
 /** 模型定价信息（单位：美元 / 百万 token） */
 interface ModelPricing {
   readonly modelId: string;
-  readonly provider: "openai" | "anthropic" | "google" | "deepseek";
+  readonly provider: "openai" | "anthropic" | "google" | "deepseek" | "zhipu" | "openai-reasoning";
   readonly inputPricePerMillion: number;       // 标准输入价格
   readonly outputPricePerMillion: number;      // 标准输出价格
   readonly cachedInputPricePerMillion: number; // 缓存输入价格
@@ -35,16 +35,16 @@ interface ModelPricing {
 }
 
 /**
- * 2025 年主流模型定价表
+ * 2026 年主流模型定价表
  *
  * 数据来源：各提供商官方定价页面
- * 最后更新：2025-03
+ * 最后更新：2026-03
  *
  * 注意：Anthropic 的提示缓存提供 90% 的输入折扣；
  *       OpenAI 批处理 API 提供 50% 的折扣；
  *       Google 对 128K 以上的上下文有不同定价。
  */
-const MODEL_PRICING_2025: readonly ModelPricing[] = [
+const MODEL_PRICING_2026: readonly ModelPricing[] = [
   // === OpenAI 系列 ===
   {
     modelId: "gpt-4o",
@@ -75,19 +75,35 @@ const MODEL_PRICING_2025: readonly ModelPricing[] = [
 
   // === Anthropic 系列 ===
   {
-    modelId: "claude-sonnet-4",
+    modelId: "claude-opus-4.6",
+    provider: "anthropic",
+    inputPricePerMillion: 15.00,
+    outputPricePerMillion: 75.00,
+    cachedInputPricePerMillion: 1.50, // 90% 折扣
+    batchInputPricePerMillion: 7.50,
+    batchOutputPricePerMillion: 37.50,
+    contextWindow: 1_000_000,
+    maxOutputTokens: 128_000,
+    tier: "flagship",
+    capabilities: [
+      "vision", "function_calling", "extended_thinking",
+      "prompt_caching", "pdf_support", "citations", "mcp_native", "agent_teams"
+    ],
+  },
+  {
+    modelId: "claude-sonnet-4.6",
     provider: "anthropic",
     inputPricePerMillion: 3.00,
     outputPricePerMillion: 15.00,
     cachedInputPricePerMillion: 0.30, // 90% 折扣
     batchInputPricePerMillion: 1.50,
     batchOutputPricePerMillion: 7.50,
-    contextWindow: 200_000,
+    contextWindow: 1_000_000,
     maxOutputTokens: 64_000,
     tier: "flagship",
     capabilities: [
       "vision", "function_calling", "extended_thinking",
-      "prompt_caching", "pdf_support", "citations"
+      "prompt_caching", "pdf_support", "citations", "mcp_native"
     ],
   },
   {
@@ -109,35 +125,35 @@ const MODEL_PRICING_2025: readonly ModelPricing[] = [
 
   // === Google 系列 ===
   {
-    modelId: "gemini-2.5-pro",
+    modelId: "gemini-3-pro",
     provider: "google",
     inputPricePerMillion: 1.25,
-    outputPricePerMillion: 10.00,
+    outputPricePerMillion: 5.00,
     cachedInputPricePerMillion: 0.3125, // 75% 折扣
     batchInputPricePerMillion: 0.625,
-    batchOutputPricePerMillion: 5.00,
-    contextWindow: 1_000_000,
+    batchOutputPricePerMillion: 2.50,
+    contextWindow: 2_000_000,
     maxOutputTokens: 65_536,
     tier: "flagship",
     capabilities: [
       "vision", "function_calling", "grounding",
-      "code_execution", "thinking"
+      "code_execution", "deep_think"
     ],
   },
   {
-    modelId: "gemini-2.5-flash",
+    modelId: "gemini-3-flash",
     provider: "google",
-    inputPricePerMillion: 0.15,
-    outputPricePerMillion: 0.60,
-    cachedInputPricePerMillion: 0.0375,
-    batchInputPricePerMillion: 0.075,
-    batchOutputPricePerMillion: 0.30,
+    inputPricePerMillion: 0.075,
+    outputPricePerMillion: 0.30,
+    cachedInputPricePerMillion: 0.01875,
+    batchInputPricePerMillion: 0.0375,
+    batchOutputPricePerMillion: 0.15,
     contextWindow: 1_000_000,
     maxOutputTokens: 65_536,
     tier: "economy",
     capabilities: [
       "vision", "function_calling", "grounding",
-      "code_execution", "thinking"
+      "code_execution", "deep_think"
     ],
   },
 
@@ -165,6 +181,36 @@ const MODEL_PRICING_2025: readonly ModelPricing[] = [
     batchOutputPricePerMillion: 1.095,
     contextWindow: 128_000,
     maxOutputTokens: 8_192,
+    tier: "mid",
+    capabilities: ["reasoning", "function_calling", "chain_of_thought"],
+  },
+
+  // === 智谱 系列 ===
+  {
+    modelId: "glm-5",
+    provider: "zhipu",
+    inputPricePerMillion: 0,        // 开源（自部署）
+    outputPricePerMillion: 0,       // 开源（自部署）
+    cachedInputPricePerMillion: 0,
+    batchInputPricePerMillion: 0,
+    batchOutputPricePerMillion: 0,
+    contextWindow: 128_000,
+    maxOutputTokens: 8_192,
+    tier: "flagship",
+    capabilities: ["vision", "function_calling", "open_source"],
+  },
+
+  // === OpenAI Reasoning 系列 ===
+  {
+    modelId: "o3-mini",
+    provider: "openai-reasoning",
+    inputPricePerMillion: 1.10,
+    outputPricePerMillion: 4.40,
+    cachedInputPricePerMillion: 0.55,
+    batchInputPricePerMillion: 0.55,
+    batchOutputPricePerMillion: 2.20,
+    contextWindow: 200_000,
+    maxOutputTokens: 100_000,
     tier: "mid",
     capabilities: ["reasoning", "function_calling", "chain_of_thought"],
   },
@@ -212,7 +258,7 @@ class PricingRegistry {
   }
 }
 
-const PRICING = new PricingRegistry(MODEL_PRICING_2025);
+const PRICING = new PricingRegistry(MODEL_PRICING_2026);
 ```
 
 ### 19.1.2 单次 LLM 调用成本计算器
@@ -900,7 +946,7 @@ class CostBreakdownAnalyzer {
     const flagshipCost = breakdowns.reduce((s, b) => {
       const fc = Object.entries(b.llmCostByModel)
         .filter(([m]) =>
-          m === "gpt-4o" || m === "claude-sonnet-4" || m === "gemini-2.5-pro"
+          m === "gpt-4o" || m === "claude-opus-4.6" || m === "claude-sonnet-4.6" || m === "gemini-3-pro"
         )
         .reduce((ss, [, c]) => ss + c, 0);
       return s + fc;
@@ -1506,7 +1552,7 @@ class ReliabilityEconomicsEngine {
 
 ## 19.3 智能模型路由：任务-模型最优匹配
 
-并非所有 Agent 任务都需要最强大（也最昂贵）的模型。简单的格式转换可以用 GPT-4o-mini 完成；复杂的多步推理才需要 Claude Sonnet 4 或 GPT-4o。**智能模型路由**的目标是根据任务的复杂度、质量要求和成本约束，自动选择最具性价比的模型。
+并非所有 Agent 任务都需要最强大（也最昂贵）的模型。简单的格式转换可以用 GPT-4o-mini 完成；复杂的多步推理才需要 Claude Sonnet 4.6 或 GPT-4o。**智能模型路由**的目标是根据任务的复杂度、质量要求和成本约束，自动选择最具性价比的模型。
 
 ### 19.3.1 任务复杂度分类器
 
@@ -1601,7 +1647,7 @@ class TaskComplexityClassifier {
         confidence: 0.5,
         features,
         reasoning: '无规则匹配，默认为 moderate 级别',
-        suggestedModels: ['gpt-4o-mini', 'claude-haiku-3.5'],
+        suggestedModels: ['gpt-4o-mini', 'claude-haiku-3.5', 'gemini-3-flash'],
       };
     }
 
@@ -1610,10 +1656,10 @@ class TaskComplexityClassifier {
     const best = matches[0];
 
     const modelSuggestions: Record<ComplexityLevel, string[]> = {
-      simple: ['gpt-4o-mini', 'gemini-2.5-flash', 'deepseek-v3'],
-      moderate: ['gpt-4o-mini', 'claude-haiku-3.5', 'gemini-2.5-flash'],
-      complex: ['gpt-4o', 'claude-sonnet-4', 'gemini-2.5-pro'],
-      expert: ['gpt-4o', 'claude-sonnet-4', 'gemini-2.5-pro'],
+      simple: ['gpt-4o-mini', 'gemini-3-flash', 'deepseek-v3'],
+      moderate: ['gpt-4o-mini', 'claude-haiku-3.5', 'gemini-3-flash'],
+      complex: ['gpt-4o', 'claude-sonnet-4.6', 'gemini-3-pro'],
+      expert: ['claude-opus-4.6', 'gpt-4o', 'claude-sonnet-4.6', 'gemini-3-pro'],
     };
 
     return {
@@ -2541,7 +2587,7 @@ class PromptCacheManager extends EventEmitter {
     }
 
     // 根据 Anthropic 定价预估月度节省
-    // Claude Sonnet 输入价格 $3/MTok，缓存命中 $0.3/MTok
+    // Claude Sonnet 4.6 输入价格 $3/MTok，缓存命中 $0.3/MTok
     const requestsPerDay = 10000; // 假设
     const daysPerMonth = 30;
     const monthlyRequests = requestsPerDay * daysPerMonth;
@@ -3818,7 +3864,7 @@ class PromptCompressor {
  *   - 系统提示词：3,000 tokens（角色定义 + 行为准则 + 知识库摘要）
  *   - 平均用户输入：200 tokens
  *   - 平均对话历史：2,000 tokens（约 8 轮对话）
- *   - 模型：Claude Sonnet（$3/MTok 输入）
+ *   - 模型：Claude Sonnet 4.6（$3/MTok 输入）
  *
  * 无优化月度成本：
  *   (3000 + 200 + 2000) × 50,000 × 30 × $3/1,000,000 = $23,400/月
@@ -4683,7 +4729,7 @@ class BatchRequestManager extends EventEmitter {
 
   private calculateBatchCost(result: ProviderBatchResponseItem): number {
     if (!result.usage) return 0;
-    // 以 Claude Sonnet 批处理价格计算
+    // 以 Claude Sonnet 4.6 批处理价格计算
     // 批处理输入: $1.5/MTok, 批处理输出: $7.5/MTok（均为实时价格的 50%）
     const inputCost = (result.usage.input_tokens * 1.5) / 1_000_000;
     const outputCost = (result.usage.output_tokens * 7.5) / 1_000_000;
@@ -4975,7 +5021,7 @@ class AsyncCostOptimizer extends EventEmitter {
       (s, m) => s + tokenEstimator.estimateText(m.content),
       0
     );
-    // 以 Claude Sonnet 价格估算
+    // 以 Claude Sonnet 4.6 价格估算
     const realtimeCost =
       (estimatedTokens * 3 + request.params.max_tokens * 15) / 1_000_000;
 
@@ -5130,7 +5176,8 @@ class PriorityClassifier {
     // 基于模型判断：使用大模型的请求往往更重要
     if (
       params.model.includes("opus") ||
-      params.model.includes("gpt-4o")
+      params.model.includes("gpt-4o") ||
+      params.model.includes("gemini-3-pro")
     ) {
       return "urgent";
     }
@@ -5160,7 +5207,7 @@ class PriorityClassifier {
  *
  * 场景：企业 Agent 平台
  *   - 日请求量：200,000
- *   - 模型：Claude Sonnet（$3/MTok 输入，$15/MTok 输出）
+ *   - 模型：Claude Sonnet 4.6（$3/MTok 输入，$15/MTok 输出）
  *   - 平均输入 tokens：1,500
  *   - 平均输出 tokens：500
  *   - 批处理折扣：50%
@@ -5248,8 +5295,8 @@ const projection: CostProjection = {
   distribution: { urgent: 0.4, normal: 0.35, background: 0.25 },
   avgInputTokens: 1500,
   avgOutputTokens: 500,
-  inputPricePerMTok: 3.0,    // Claude Sonnet 输入
-  outputPricePerMTok: 15.0,  // Claude Sonnet 输出
+  inputPricePerMTok: 3.0,    // Claude Sonnet 4.6 输入
+  outputPricePerMTok: 15.0,  // Claude Sonnet 4.6 输出
   batchDiscount: 0.5,
 };
 
@@ -6085,7 +6132,7 @@ class CostMonitoringSystem extends EventEmitter {
     // 建议 1：检查是否有大量请求使用了高端模型
     for (const [model, cost] of modelCosts) {
       if (
-        (model.includes("opus") || model.includes("gpt-4o")) &&
+        (model.includes("opus") || model.includes("gpt-4o") || model.includes("gemini-3-pro")) &&
         cost > 100
       ) {
         recommendations.push({
@@ -7713,8 +7760,8 @@ function calculateMonthlyCost(config: BaselineConfig): number {
  *
  * 路由策略：
  *   - 简单事实查询 (40%) → Claude Haiku ($0.25/$1.25 per MTok)
- *   - 文档摘要 (20%) → Claude Sonnet ($3/$15 per MTok)
- *   - 复杂分析 (40%) → Claude Opus ($15/$75 per MTok)
+ *   - 文档摘要 (20%) → Claude Sonnet 4.6 ($3/$15 per MTok)
+ *   - 复杂分析 (40%) → Claude Opus 4.6 ($15/$75 per MTok)
  */
 
 interface RoutingResult {
@@ -7792,12 +7839,12 @@ function calculateLayer1Savings(): {
  *   输出: 800 × 6000 × 30 × $1.25/M  = $180.00
  *   小计: $382.50/月
  *
- * claude-sonnet (20%):
+ * claude-sonnet-4.6 (20%):
  *   输入: 4500 × 3000 × 30 × $3/M = $1,215.00
  *   输出: 800 × 3000 × 30 × $15/M = $1,080.00
  *   小计: $2,295.00/月
  *
- * claude-opus (40%):
+ * claude-opus-4.6 (40%):
  *   输入: 4500 × 6000 × 30 × $15/M = $12,150.00
  *   输出: 800 × 6000 × 30 × $75/M  = $10,800.00
  *   小计: $22,950.00/月
@@ -8235,12 +8282,12 @@ function evaluateRoutingQuality(
 
 **场景描述**
 
-一个电商平台的客服 Agent 使用 Claude Sonnet 处理用户咨询。其系统提示词非常长（包含商品知识库摘要、退换货政策、优惠活动规则等），达到 6,000 tokens。而用户的实际问题通常只有 100-300 tokens。这意味着每次请求中 90%+ 的 token 是重复的系统提示词。
+一个电商平台的客服 Agent 使用 Claude Sonnet 4.6 处理用户咨询。其系统提示词非常长（包含商品知识库摘要、退换货政策、优惠活动规则等），达到 6,000 tokens。而用户的实际问题通常只有 100-300 tokens。这意味着每次请求中 90%+ 的 token 是重复的系统提示词。
 
 **优化前状态**
 
 ```
-- 模型: Claude Sonnet ($3/MTok 输入, $15/MTok 输出)
+- 模型: Claude Sonnet 4.6 ($3/MTok 输入, $15/MTok 输出)
 - 日均请求量: 80,000 次
 - 系统提示词: 6,000 tokens (固定不变)
 - 平均用户输入: 200 tokens (包含对话历史)
@@ -8265,7 +8312,7 @@ function evaluateRoutingQuality(
  * 缓存读取: 原价的 10%  (命中缓存时)
  * 缓存 TTL: 5 分钟 (5 分钟内重复请求命中缓存)
  *
- * Claude Sonnet 定价:
+ * Claude Sonnet 4.6 定价:
  *   标准输入: $3/MTok
  *   缓存写入: $3.75/MTok (1.25x)
  *   缓存读取: $0.30/MTok (0.1x)
@@ -8455,7 +8502,7 @@ async function beforeOptimization_CSAgent(
 
   // 模拟 API 调用
   // const response = await anthropic.messages.create({
-  //   model: "claude-sonnet-4-20250514",
+  //   model: "claude-sonnet-4-6-20260201",
   //   max_tokens: 500,
   //   messages,
   // });
@@ -8500,7 +8547,7 @@ async function afterOptimization_CSAgent(
 
   // 模拟 Anthropic API 调用
   // const response = await anthropic.messages.create({
-  //   model: "claude-sonnet-4-20250514",
+  //   model: "claude-sonnet-4-6-20260201",
   //   max_tokens: 500,
   //   system: systemBlocks,
   //   messages: [

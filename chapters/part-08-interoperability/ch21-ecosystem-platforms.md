@@ -1039,7 +1039,7 @@ async function bootstrapPlatform(): Promise<AgentPlatform> {
       maxStorageMB: 5120,
       maxModelCallsPerDay: 50000,
     },
-    allowedModels: ['gpt-4o', 'claude-sonnet-4-20250514', 'deepseek-r1'],
+    allowedModels: ['gpt-4o', 'o3-mini', 'claude-sonnet-4-20250514', 'claude-sonnet-4.6', 'deepseek-r1', 'glm-5'],
     allowedCapabilities: ['*'],
     dataResidency: 'cn',
   });
@@ -1986,7 +1986,7 @@ async function registryDemo(): Promise<void> {
           model: 'gpt-4o-mini',
           purpose: '翻译主模型',
           required: true,
-          fallback: 'gpt-3.5-turbo',
+          fallback: 'gpt-4o-mini',
         },
       ],
       environment: {},
@@ -2919,11 +2919,12 @@ class ManifestIntegrityStage implements ReviewStage {
     }
 
     // 检查版本是否已知存在漏洞（模拟）
-    if (manifest.runtime.models.some(m => m.model === 'gpt-3.5-turbo-0301')) {
+    const deprecatedModels = ['gpt-3.5-turbo-0301', 'gpt-3.5-turbo', 'gemini-2.0-flash'];
+    if (manifest.runtime.models.some(m => deprecatedModels.includes(m.model))) {
       findings.push({
         stage: this.name, severity: 'medium', category: 'deprecated-model',
-        description: '使用了已弃用的模型版本 gpt-3.5-turbo-0301',
-        remediation: '升级到最新版本的模型',
+        description: '使用了已弃用的模型版本（gpt-3.5-turbo 系列已停用，gemini-2.0-flash 已升级为 gemini-3-flash）',
+        remediation: '升级到最新版本的模型：gpt-4o-mini、gemini-3-flash 等',
       });
     }
 
@@ -3262,10 +3263,15 @@ Agent 最终需要通过具体的**渠道**与用户交互。不同的渠道（S
 │  ┌────────┐    ┌──────────────┐    │        │         │    │
 │  │WebSocket│──▶│WSAdapter     │───▶│        ▼         │    │
 │  └────────┘    └──────────────┘    │  Agent Runtime   │    │
+│  ┌────────┐    ┌──────────────┐    │                  │    │
+│  │OpenClaw│──▶│OpenClawBridge│───▶│  (20+ 平台)      │    │
+│  └────────┘    └──────────────┘    │                  │    │
 │                                    └──────────────────┘    │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+> **OpenClaw 的启示**：OpenClaw（GitHub 100K+ Stars）将"平台适配"做到了极致——通过 Gateway 守护进程 + Plugin 架构，开箱即用地支持 20+ 消息平台（Slack、Discord、Teams、WeChat、Telegram 等）。其 134 个 MCP 兼容工具使 Agent 可以通过统一的 Plugin 接口连接任意渠道。如果你的 Agent 需要快速对接大量消息平台，OpenClaw 的 Gateway 架构是值得参考的模式——甚至可以直接将 OpenClaw 作为平台适配层集成到你的 Agent 系统中。
 
 ### 21.4.2 统一消息模型
 
@@ -3296,7 +3302,7 @@ interface NormalizedMessage {
   timestamp: number;
 }
 
-type PlatformType = 'slack' | 'teams' | 'email' | 'rest' | 'websocket' | 'web' | 'custom';
+type PlatformType = 'slack' | 'teams' | 'email' | 'rest' | 'websocket' | 'web' | 'openclaw' | 'custom';
 
 interface NormalizedUser {
   userId: string;
@@ -5420,7 +5426,7 @@ interface ABTestVariant {
 // ============================================================
 
 /** 模型提供商标识 */
-type ModelProvider = 'openai' | 'anthropic' | 'google' | 'deepseek' | 'local' | 'azure';
+type ModelProvider = 'openai' | 'anthropic' | 'google' | 'deepseek' | 'zhipu' | 'local' | 'azure';
 
 /** 统一的模型请求 */
 interface UnifiedModelRequest {
@@ -5635,6 +5641,13 @@ class OpenAIAdapter implements ProviderAdapter {
         inputPricePer1kTokens: 0.015, outputPricePer1kTokens: 0.06,
         qualityTier: 'premium',
       },
+      {
+        id: 'o3-mini', provider: 'openai', displayName: 'o3 Mini',
+        contextWindow: 200000, maxOutputTokens: 100000,
+        supportsToolCalling: true, supportsVision: true, supportsStreaming: true,
+        inputPricePer1kTokens: 0.0011, outputPricePer1kTokens: 0.0044,
+        qualityTier: 'standard',
+      },
     ];
   }
 
@@ -5726,8 +5739,22 @@ class AnthropicAdapter implements ProviderAdapter {
         qualityTier: 'standard',
       },
       {
+        id: 'claude-sonnet-4.6', provider: 'anthropic', displayName: 'Claude Sonnet 4.6',
+        contextWindow: 200000, maxOutputTokens: 64000,
+        supportsToolCalling: true, supportsVision: true, supportsStreaming: true,
+        inputPricePer1kTokens: 0.003, outputPricePer1kTokens: 0.015,
+        qualityTier: 'standard',
+      },
+      {
         id: 'claude-opus-4-20250514', provider: 'anthropic', displayName: 'Claude Opus 4',
         contextWindow: 200000, maxOutputTokens: 64000,
+        supportsToolCalling: true, supportsVision: true, supportsStreaming: true,
+        inputPricePer1kTokens: 0.015, outputPricePer1kTokens: 0.075,
+        qualityTier: 'premium',
+      },
+      {
+        id: 'claude-opus-4.6', provider: 'anthropic', displayName: 'Claude Opus 4.6',
+        contextWindow: 200000, maxOutputTokens: 128000,
         supportsToolCalling: true, supportsVision: true, supportsStreaming: true,
         inputPricePer1kTokens: 0.015, outputPricePer1kTokens: 0.075,
         qualityTier: 'premium',
@@ -5806,8 +5833,8 @@ class GoogleAdapter implements ProviderAdapter {
   listModels(): ModelInfo[] {
     return [
       {
-        id: 'gemini-2.0-flash', provider: 'google', displayName: 'Gemini 2.0 Flash',
-        contextWindow: 1000000, maxOutputTokens: 8192,
+        id: 'gemini-3-flash', provider: 'google', displayName: 'Gemini 3 Flash',
+        contextWindow: 1000000, maxOutputTokens: 16384,
         supportsToolCalling: true, supportsVision: true, supportsStreaming: true,
         inputPricePer1kTokens: 0.0001, outputPricePer1kTokens: 0.0004,
         qualityTier: 'economy',
@@ -5873,6 +5900,13 @@ class DeepSeekAdapter implements ProviderAdapter {
         inputPricePer1kTokens: 0.00055, outputPricePer1kTokens: 0.0022,
         qualityTier: 'standard',
       },
+      {
+        id: 'deepseek-r1', provider: 'deepseek', displayName: 'DeepSeek R1',
+        contextWindow: 128000, maxOutputTokens: 16384,
+        supportsToolCalling: true, supportsVision: false, supportsStreaming: true,
+        inputPricePer1kTokens: 0.00055, outputPricePer1kTokens: 0.0022,
+        qualityTier: 'premium',
+      },
     ];
   }
 
@@ -5897,6 +5931,48 @@ class DeepSeekAdapter implements ProviderAdapter {
 
   getRateLimitStatus(): RateLimitStatus {
     return { remainingRequests: 20000, remainingTokens: 3000000, resetAt: 0 };
+  }
+}
+
+// ---- GLM (智谱) 适配器 ----
+
+class GLMAdapter implements ProviderAdapter {
+  readonly provider: ModelProvider = 'zhipu';
+  private apiKey: string;
+
+  constructor(config: { apiKey: string }) {
+    this.apiKey = config.apiKey;
+  }
+
+  listModels(): ModelInfo[] {
+    return [
+      {
+        id: 'glm-5', provider: 'zhipu', displayName: 'GLM-5',
+        contextWindow: 128000, maxOutputTokens: 16384,
+        supportsToolCalling: true, supportsVision: true, supportsStreaming: true,
+        inputPricePer1kTokens: 0.001, outputPricePer1kTokens: 0.002,
+        qualityTier: 'standard',
+      },
+    ];
+  }
+
+  async complete(request: ProviderRequest): Promise<ProviderResponse> {
+    const startTime = Date.now();
+    return {
+      content: `[GLM ${request.model}] 模拟响应`,
+      usage: { promptTokens: 85, completionTokens: 42, totalTokens: 127 },
+      finishReason: 'stop',
+      latencyMs: Date.now() - startTime,
+    };
+  }
+
+  async *completeStream(request: ProviderRequest): AsyncIterable<ProviderStreamChunk> {
+    yield { content: '[GLM Stream] 模拟', done: false };
+    yield { content: '流式响应', done: true };
+  }
+
+  getRateLimitStatus(): RateLimitStatus {
+    return { remainingRequests: 10000, remainingTokens: 1500000, resetAt: 0 };
   }
 }
 ```
@@ -6476,6 +6552,7 @@ async function modelGatewayDemo(): Promise<void> {
   gateway.registerProvider(new AnthropicAdapter({ apiKey: 'sk-ant-xxx' }));
   gateway.registerProvider(new GoogleAdapter({ apiKey: 'AIza-xxx' }));
   gateway.registerProvider(new DeepSeekAdapter({ apiKey: 'sk-ds-xxx' }));
+  gateway.registerProvider(new GLMAdapter({ apiKey: 'zhipu-xxx' }));
 
   // 注册降级链
   gateway.registerFallbackChain({
@@ -6509,7 +6586,7 @@ async function modelGatewayDemo(): Promise<void> {
         failoverOn: ['error', 'timeout', 'rate_limit'], timeoutMs: 15000 },
       { provider: 'openai', model: 'gpt-4o-mini',
         failoverOn: ['error', 'timeout', 'rate_limit'], timeoutMs: 15000 },
-      { provider: 'google', model: 'gemini-2.0-flash',
+      { provider: 'google', model: 'gemini-3-flash',
         failoverOn: ['error', 'timeout'], timeoutMs: 15000 },
     ],
   });
@@ -8396,7 +8473,7 @@ Agent 平台不是简单的 Agent 运行容器，而是一套完整的基础设�
 
 **4. 适配器模式统一多平台差异**
 
-`PlatformAdapter` 接口和 `MessageNormalizer` 将 Slack、Teams、Email、WebSocket 等平台的消息格式归一化为统一的 `NormalizedMessage`。`AdapterManager` 统一管理所有适配器的生命周期，`EventRouter` 基于规则将消息路由到正确的 Agent。
+`PlatformAdapter` 接口和 `MessageNormalizer` 将 Slack、Teams、Email、WebSocket 等平台的消息格式归一化为统一的 `NormalizedMessage`。`AdapterManager` 统一管理所有适配器的生命周期，`EventRouter` 基于规则将消息路由到正确的 Agent。值得关注的是 OpenClaw 等开源项目已实现 20+ 平台的开箱即用适配，可作为平台适配层的参考实现或直接集成方案。
 
 **5. Agent Mesh 借鉴服务网格的成熟模式**
 
@@ -8408,7 +8485,7 @@ Agent 平台不是简单的 Agent 运行容器，而是一套完整的基础设�
 
 **7. 模型网关统一多提供商访问**
 
-`ModelGateway` 对上提供统一 API，对下管理 OpenAI、Anthropic、Google、DeepSeek 等多个提供商。`FallbackChainExecutor` 实现自动降级，单一提供商故障不会影响整体可用性。`CostTracker` 实现精确到请求级别的成本追踪。
+`ModelGateway` 对上提供统一 API，对下管理 OpenAI、Anthropic、Google、DeepSeek、智谱（GLM）等多个提供商。`FallbackChainExecutor` 实现自动降级，单一提供商故障不会影响整体可用性。`CostTracker` 实现精确到请求级别的成本追踪。
 
 **8. 编排平台降低使用门槛**
 

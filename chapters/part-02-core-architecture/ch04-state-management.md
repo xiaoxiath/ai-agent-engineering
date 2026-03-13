@@ -238,7 +238,7 @@ interface PerformanceMetrics {
 }
 
 
-> **接口演化说明**：第 3 章的 `AgentState` 侧重于描述 Agent 的高层执行状态（goal / plan / steps），适合理解架构全貌。本章的 `AgentState` 则面向工程实现，聚焦于消息流、工具调用和版本化状态变迁，为 Reducer 模式和检查点系统提供精确的数据模型。两者是同一概念在不同抽象层级的表达。
+> **接口一致性说明**：本章的 `AgentState` 接口与第 3 章的定义保持一致（`id` / `phase` / `messages` / `toolCalls` / `currentStep` / `maxSteps` / `error` / `metadata` / `version` / `metrics` / `parentCheckpointId`）。第 3 章以概览视角引入该接口并给出简化的 Reducer 实现；本章在此基础上补充状态转换守卫、中间件、检查点和分布式同步等工程细节。Agent 的高层业务概念（如任务目标 goal、执行计划 plan）可按需存入 `metadata` 字段，保持核心接口的通用性。
 /** Agent 完整状态 */
 interface AgentState {
   readonly id: string;

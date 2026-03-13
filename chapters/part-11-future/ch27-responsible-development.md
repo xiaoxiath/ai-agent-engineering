@@ -1,6 +1,6 @@
 # 第27章：负责任的 Agent 开发
 
-> "With great power comes great responsibility." —— Voltaire (popularized by Spider-Man)
+> "With great power comes great responsibility." —— 常被归于 Voltaire，实际出处不详；因 Spider-Man 系列而广为流传
 
 ## 27.1 AI Agent 伦理框架
 

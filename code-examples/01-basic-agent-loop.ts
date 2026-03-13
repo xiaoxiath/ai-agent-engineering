@@ -6,6 +6,7 @@
  */
 
 import OpenAI from 'openai';
+import { evaluate } from 'mathjs';
 
 // ============================================================
 // 类型定义
@@ -48,8 +49,8 @@ const calculatorTool: Tool = {
   },
   execute: async (params: { expression: string }) => {
     try {
-      // 安全的数学表达式求值
-      const result = Function(`"use strict"; return (${params.expression})`)();
+      // 安全的数学表达式求值 —— 使用 mathjs，仅支持数学运算，无法执行任意 JS
+      const result = evaluate(params.expression);
       return `Result: ${result}`;
     } catch (error) {
       return `Error: Invalid expression "${params.expression}"`;

@@ -1835,53 +1835,126 @@ ${chunk.content}`;
     return this.relations;
   }
 
-  /** 社区检测（简化版 Leiden 算法） */
+  // ================================================================
+  // 社区检测（简化版 Louvain 算法）
+  // ----------------------------------------------------------------
+  // 教学简化版：演示基于模块度（modularity）优化的社区发现核心思想。
+  // 生产环境应使用 graphology-communities-louvain（JS）或 neo4j GDS
+  // 等图计算库，它们支持加权边、层级社区和大规模图的高效处理。
+  // ================================================================
+
+  /**
+   * 计算将节点 nodeId 移入 targetCommunity 带来的模块度增益（ΔQ）。
+   * ΔQ > 0 表示移动后图的社区结构更优。
+   */
+  private modularityGain(
+    nodeId: string,
+    targetCommunity: string,
+    communityOf: Map<string, string>,
+    adjacency: Map<string, Map<string, number>>,
+    totalWeight: number
+  ): number {
+    const neighbors = adjacency.get(nodeId) || new Map<string, number>();
+    // k_i: 节点 nodeId 的加权度
+    let ki = 0;
+    for (const w of neighbors.values()) ki += w;
+    // Σ_in: targetCommunity 内部边的总权重
+    // Σ_tot: targetCommunity 所有节点的度之和
+    let sigmaIn = 0;
+    let sigmaTot = 0;
+    for (const [nId, comm] of communityOf) {
+      if (comm !== targetCommunity) continue;
+      const nNeighbors = adjacency.get(nId) || new Map<string, number>();
+      for (const [neighbor, w] of nNeighbors) {
+        if (communityOf.get(neighbor) === targetCommunity) sigmaIn += w;
+        sigmaTot += w;
+      }
+    }
+    sigmaIn /= 2; // 每条内部边被计数两次
+
+    // k_i_in: nodeId 与 targetCommunity 内节点的连边权重
+    let kiIn = 0;
+    for (const [neighbor, w] of neighbors) {
+      if (communityOf.get(neighbor) === targetCommunity) kiIn += w;
+    }
+
+    const m2 = 2 * totalWeight;
+    return (kiIn / m2) - (sigmaTot * ki) / (m2 * m2);
+  }
+
+  /** 社区检测（简化版 Louvain 算法） */
   async buildCommunities(): Promise<GraphCommunity[]> {
-    // 构建邻接表
-    const adjacency = new Map<string, Set<string>>();
-    for (const entity of this.entities.keys()) {
-      adjacency.set(entity, new Set());
-    }
-
-    for (const rel of this.relations) {
-      adjacency.get(rel.sourceEntityId)?.add(rel.targetEntityId);
-      adjacency.get(rel.targetEntityId)?.add(rel.sourceEntityId);
-    }
-
-    // 简化的社区检测: 使用连通分量作为基础社区
-    const visited = new Set<string>();
-    const communities: string[][] = [];
-
+    // ---------- 1. 构建加权邻接表 ----------
+    const adjacency = new Map<string, Map<string, number>>();
     for (const entityId of this.entities.keys()) {
-      if (visited.has(entityId)) continue;
+      adjacency.set(entityId, new Map());
+    }
+    let totalWeight = 0;
+    for (const rel of this.relations) {
+      const w = rel.weight || 1;
+      const srcNeighbors = adjacency.get(rel.sourceEntityId)!;
+      const tgtNeighbors = adjacency.get(rel.targetEntityId)!;
+      srcNeighbors.set(rel.targetEntityId, (srcNeighbors.get(rel.targetEntityId) || 0) + w);
+      tgtNeighbors.set(rel.sourceEntityId, (tgtNeighbors.get(rel.sourceEntityId) || 0) + w);
+      totalWeight += w;
+    }
 
-      // BFS 寻找连通分量
-      const community: string[] = [];
-      const queue: string[] = [entityId];
+    // ---------- 2. 初始化：每个节点自成一个社区 ----------
+    const communityOf = new Map<string, string>();
+    for (const entityId of this.entities.keys()) {
+      communityOf.set(entityId, entityId); // 初始社区 ID = 节点 ID
+    }
 
-      while (queue.length > 0) {
-        const current = queue.shift()!;
-        if (visited.has(current)) continue;
-        visited.add(current);
-        community.push(current);
+    // ---------- 3. 迭代优化（Phase 1 of Louvain） ----------
+    const MAX_ITERATIONS = 20;
+    for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+      let moved = false;
 
-        const neighbors = adjacency.get(current) || new Set();
-        for (const neighbor of neighbors) {
-          if (!visited.has(neighbor)) {
-            queue.push(neighbor);
+      for (const nodeId of this.entities.keys()) {
+        const currentComm = communityOf.get(nodeId)!;
+        const neighbors = adjacency.get(nodeId) || new Map<string, number>();
+
+        // 收集邻居所在的社区（去重）
+        const neighborComms = new Set<string>();
+        for (const neighbor of neighbors.keys()) {
+          neighborComms.add(communityOf.get(neighbor)!);
+        }
+
+        // 尝试将节点移入每个邻居社区，选模块度增益最大的
+        let bestComm = currentComm;
+        let bestGain = 0;
+        for (const targetComm of neighborComms) {
+          if (targetComm === currentComm) continue;
+          const gain = this.modularityGain(
+            nodeId, targetComm, communityOf, adjacency, totalWeight
+          );
+          if (gain > bestGain) {
+            bestGain = gain;
+            bestComm = targetComm;
           }
+        }
+
+        if (bestComm !== currentComm) {
+          communityOf.set(nodeId, bestComm);
+          moved = true;
         }
       }
 
-      if (community.length > 0) {
-        communities.push(community);
-      }
+      // 如果本轮没有任何节点移动，提前收敛
+      if (!moved) break;
     }
 
-    // 为每个社区生成摘要
+    // ---------- 4. 汇总社区成员 ----------
+    const communityGroups = new Map<string, string[]>();
+    for (const [entityId, commId] of communityOf) {
+      if (!communityGroups.has(commId)) communityGroups.set(commId, []);
+      communityGroups.get(commId)!.push(entityId);
+    }
+
+    // ---------- 5. 为每个社区生成 LLM 摘要 ----------
     this.communities = [];
-    for (let i = 0; i < communities.length; i++) {
-      const entityIds = communities[i];
+    let idx = 0;
+    for (const [, entityIds] of communityGroups) {
       const entities = entityIds
         .map((id) => this.entities.get(id)!)
         .filter(Boolean);
@@ -1889,11 +1962,12 @@ ${chunk.content}`;
       const summary = await this.generateCommunitySummary(entities);
 
       this.communities.push({
-        id: `community_${i}`,
+        id: `community_${idx}`,
         level: 0,
         entityIds,
         summary,
       });
+      idx++;
     }
 
     return this.communities;
@@ -2402,7 +2476,14 @@ ${contextText.slice(0, 6000)}
 声明: "${claim}"`;
 
       const verdict = await this.llm.generate(verifyPrompt, "");
-      if (verdict.toLowerCase().includes("supported")) {
+      // ✅ 修复：includes("supported") 会同时匹配 "supported" 和 "not_supported"
+      // 使用显式否定模式检测，排除 not_supported / unsupported 等情况
+      const NEGATION_PATTERNS = [
+        /\bnot[_\s]+supported\b/i,
+        /\bunsupported\b/i,
+      ];
+      const containsNegation = NEGATION_PATTERNS.some((p) => p.test(verdict));
+      if (!containsNegation && /\bsupported\b/i.test(verdict)) {
         supportedCount++;
       }
     }

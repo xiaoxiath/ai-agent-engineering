@@ -1196,15 +1196,72 @@ interface RateLimitConfig {
 class OutputSizeGuard implements ToolGuard {
   readonly name = 'OutputSizeGuard';
 
+  // 记录每个工具最近输出的 token 数，用于预检判断
+  private readonly outputHistory: Map<string, number[]> = new Map();
+  private readonly historyWindowSize = 10;
+
   constructor(
     private readonly maxOutputTokens: number = 4000,
     private readonly truncationStrategy: 'head' | 'tail' | 'middle' = 'tail',
   ) {}
 
-  async check(_invocation: ToolInvocation): Promise<GuardResult> {
-    // 此 guard 在执行前仅做预检（基于工具历史统计）
-    // 主要截断逻辑在 ToolExecutionWrapper 中
-    return { guardName: this.name, decision: 'ALLOW', reason: 'pre-check passed' };
+  async check(invocation: ToolInvocation): Promise<GuardResult> {
+    // 将输出限制配置注入 metadata，供 ToolExecutionWrapper 截断时使用
+    if (!invocation.metadata) invocation.metadata = {};
+    invocation.metadata['maxOutputTokens'] = this.maxOutputTokens;
+    invocation.metadata['truncationStrategy'] = this.truncationStrategy;
+
+    // 基于工具历史输出大小进行预检
+    const history = this.outputHistory.get(invocation.toolName);
+    if (!history || history.length === 0) {
+      return {
+        guardName: this.name,
+        decision: 'ALLOW',
+        reason: '无历史数据，允许执行并将在输出阶段截断',
+      };
+    }
+
+    const avgTokens = history.reduce((a, b) => a + b, 0) / history.length;
+    const maxHistorical = Math.max(...history);
+
+    // 若历史最大输出从未超限，放行
+    if (maxHistorical <= this.maxOutputTokens) {
+      return {
+        guardName: this.name,
+        decision: 'ALLOW',
+        reason: `历史输出均在限制内（平均 ${Math.round(avgTokens)} tokens）`,
+        metadata: { avgTokens, maxHistorical },
+      };
+    }
+
+    // 若历史平均值已超限，发出警告（仍放行，由 truncateOutput 兜底）
+    if (avgTokens > this.maxOutputTokens) {
+      return {
+        guardName: this.name,
+        decision: 'WARN',
+        reason: `工具 ${invocation.toolName} 历史平均输出约 ${Math.round(avgTokens)} tokens，`
+          + `超过上限 ${this.maxOutputTokens} tokens，输出将被截断`,
+        metadata: { avgTokens, maxHistorical },
+      };
+    }
+
+    return {
+      guardName: this.name,
+      decision: 'ALLOW',
+      reason: `历史平均 ${Math.round(avgTokens)} tokens，峰值 ${maxHistorical} tokens`,
+      metadata: { avgTokens, maxHistorical },
+    };
+  }
+
+  /** 记录一次工具输出大小，供后续预检使用 */
+  recordOutput(toolName: string, tokenCount: number): void {
+    const history = this.outputHistory.get(toolName) || [];
+    history.push(tokenCount);
+    // 只保留最近 N 次记录
+    if (history.length > this.historyWindowSize) {
+      history.shift();
+    }
+    this.outputHistory.set(toolName, history);
   }
 
   /**

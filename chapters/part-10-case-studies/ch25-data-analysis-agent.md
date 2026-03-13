@@ -304,6 +304,29 @@ class DataAnalysisAgent {
 ### 25.6.1 查询安全层
 
 ```typescript
+// ✅ 检查 SQL 语句类型，而非全文搜索关键字
+// 避免误报：例如 "SELECT * FROM order_updates" 不会因包含 UPDATE 而被拦截
+const DANGEROUS_STATEMENT_PATTERNS = [
+  /^\s*(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|TRUNCATE|EXEC|EXECUTE)\b/i,
+];
+
+function validateSQL(sql: string): { safe: boolean; reason?: string } {
+  const normalized = sql.trim();
+  for (const pattern of DANGEROUS_STATEMENT_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return {
+        safe: false,
+        reason: `Detected dangerous SQL statement type: ${normalized.split(/\s/)[0]}`,
+      };
+    }
+  }
+  // 仅允许 SELECT / WITH ... SELECT 语句
+  if (!/^\s*(SELECT|WITH)\b/i.test(normalized)) {
+    return { safe: false, reason: 'Only SELECT queries are allowed' };
+  }
+  return { safe: true };
+}
+
 class SQLValidator {
   async validate(sql: string, tables: TableDefinition[]): Promise<ValidationResult> {
     // 1. 语法检查
@@ -311,15 +334,13 @@ class SQLValidator {
     if (!parseResult.valid) {
       return { isValid: false, errors: [parseResult.error!] };
     }
-    
-    // 2. 只读检查 - 阻止修改操作
-    const forbidden = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'CREATE'];
-    for (const keyword of forbidden) {
-      if (sql.toUpperCase().includes(keyword)) {
-        return { isValid: false, errors: [`禁止使用 ${keyword} 操作`] };
-      }
+
+    // 2. 只读检查 - 基于语句类型检测，而非全文关键字搜索
+    const safety = validateSQL(sql);
+    if (!safety.safe) {
+      return { isValid: false, errors: [safety.reason!] };
     }
-    
+
     // 3. 表权限检查
     const usedTables = this.extractTableNames(sql);
     const allowedTables = tables.map(t => t.name);
@@ -327,19 +348,21 @@ class SQLValidator {
     if (unauthorized.length > 0) {
       return { isValid: false, errors: [`无权访问表: ${unauthorized.join(', ')}`] };
     }
-    
+
     // 4. 结果集大小限制
     if (!sql.toUpperCase().includes('LIMIT')) {
       return { isValid: true, sql: sql + ' LIMIT 10000', explanation: '已自动添加结果集限制' };
     }
-    
+
     return { isValid: true, sql, explanation: '验证通过' };
   }
-  
+
   private parseSQL(sql: string): { valid: boolean; error?: string } { return { valid: true }; }
   private extractTableNames(sql: string): string[] { return []; }
 }
 ```
+
+> **生产环境建议：** 上述基于正则表达式的语句类型检查适用于教学演示和简单场景。在生产环境中，应使用成熟的 SQL AST（抽象语法树）解析库——例如 [`node-sql-parser`](https://github.com/taozhi8833998/node-sql-parser)——对 SQL 进行完整解析，精确识别语句类型、子查询和嵌套结构，从而彻底杜绝各类绕过手段（如 `; DROP TABLE ...` 拼接注入、CTE 内嵌写操作等）。
 
 ## 25.7 小结
 

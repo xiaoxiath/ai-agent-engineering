@@ -118,33 +118,53 @@ result = crew.kickoff()
 
 ## B.4 OpenAI Agents SDK
 
-### B.4.1 核心 API
+### B.4.1 核心 API（Python）
+
+> **包名：** `openai-agents`（`pip install openai-agents`）
 
 ```python
-from openai import agents
+from agents import Agent, Runner, function_tool
+from agents.tool import FileSearchTool, CodeInterpreterTool
 
 # Agent 定义
-agent = agents.Agent(
+agent = Agent(
     name='assistant',
     instructions='You are a helpful assistant.',
     model='gpt-4o',
     tools=[
-        agents.function_tool(my_function),
-        agents.FileSearchTool(),
-        agents.CodeInterpreterTool()
+        function_tool(my_function),
+        FileSearchTool(),
+        CodeInterpreterTool()
     ]
 )
 
 # Handoff（Agent 转接）
-triage_agent = agents.Agent(
+triage_agent = Agent(
     name='triage',
     instructions='Route to the right specialist.',
     handoffs=[billing_agent, tech_agent]
 )
 
 # 运行
-result = await agents.Runner.run(agent, 'Hello, help me!')
+result = await Runner.run(agent, 'Hello, help me!')
 print(result.final_output)
+```
+
+### B.4.2 核心 API（TypeScript）
+
+> **包名：** `@openai/agents`（`npm install @openai/agents`）
+
+```typescript
+import { Agent, run } from '@openai/agents';
+
+const agent = new Agent({
+  name: 'assistant',
+  instructions: 'You are a helpful assistant.',
+  model: 'gpt-4o',
+});
+
+const result = await run(agent, 'Hello, help me!');
+console.log(result.finalOutput);
 ```
 
 ## B.5 MCP (Model Context Protocol)

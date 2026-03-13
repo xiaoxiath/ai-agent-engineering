@@ -65,6 +65,6 @@
 - [附录 A：TypeScript Agent 开发环境搭建指南](appendix/appendix-a-dev-environment.md)
 - [附录 B：主流 Agent 框架 API 速查表](appendix/appendix-b-framework-api-reference.md)
 - [附录 C：MCP / A2A / ACP 协议规范摘要](appendix/appendix-c-protocol-specs.md)
-- [附录 D：OWASP Agentic Top 10 检查清单](appendix/appendix-d-owasp-checklist.md)
+- [附录 D：Agent 安全检查清单](appendix/appendix-d-security-checklist.md)
 - [附录 E：Agent 评估基准一览表](appendix/appendix-e-benchmark-catalog.md)
 - [附录 F：推荐阅读与资源索引](appendix/appendix-f-recommended-reading.md)

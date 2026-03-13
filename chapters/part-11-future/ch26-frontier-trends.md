@@ -6,7 +6,7 @@
 
 ### 26.1.1 从 Fast Thinking 到 Deep Reasoning
 
-随着 OpenAI o1/o3、DeepSeek-R1、Claude 3.5 等推理模型的出现，Agent 的推理能力正在发生质变：
+随着 OpenAI o1/o3、DeepSeek-R1 等推理模型的出现，Agent 的推理能力正在发生质变：
 
 ```typescript
 interface ReasoningAgent {

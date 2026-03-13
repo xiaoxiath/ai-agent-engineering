@@ -339,7 +339,6 @@ class AgentCapabilityAssessor {
 | GPT-4 (2023) | 128K | Function Calling | 强 |
 | Claude 3.5 (2024) | 200K | Tool Use | 很强 |
 | GPT-4o (2024) | 128K | Parallel Tools | 很强 |
-| Claude 4 (2025) | 200K+ | MCP Native | 极强 |
 | Gemini 2.5 Pro (2025) | 1M | ADK Native | 极强 |
 
 关键进步：

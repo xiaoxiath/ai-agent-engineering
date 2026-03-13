@@ -35,7 +35,7 @@
 
 | 文章 | 作者 | 关键内容 |
 |------|------|---------|
-| Building effective agents | Anthropic | Agent 设计模式 |
+| [[Building effective agents]](https://www.anthropic.com/engineering/building-effective-agents) | Anthropic | Agent 设计模式与工程最佳实践 |
 | Context Engineering | Toby Lutke / Anthropic | 上下文工程方法论 |
 | Multi-agent systems | Andrew Ng / Anthropic | 多 Agent 编排 |
 | How to Build an Agent | OpenAI | Agent 开发指南 |
@@ -51,7 +51,9 @@
 | Google ADK | Python | 5k+ | Google 生态集成 |
 | CrewAI | Python | 25k+ | 角色扮演式协作 |
 | AutoGen | Python | 35k+ | 微软多 Agent 对话 |
-| Mastra | TypeScript | 10k+ | TS 原生 Agent 框架 |
+| [[AG2]](https://ag2.ai) | Python | — | AutoGen 原始团队 fork，延续 AutoGen 开源社区的独立演进 |
+| [[Mastra]](https://mastra.ai/docs) | TypeScript | 10k+ | TS 原生 Agent 框架 |
+| [[OpenAI Agents SDK]](https://github.com/openai/openai-agents-python) | Python | — | OpenAI 官方 Agent 开发框架，内置 handoff、guardrails 和 tracing |
 
 ### F.3.2 工具与基础设施
 
@@ -62,9 +64,19 @@
 | Qdrant | 向量数据库 | 高性能相似搜索 |
 | OpenTelemetry GenAI | 追踪标准 | AI 系统可观测性 |
 
-## F.4 学习路线推荐
+## F.4 官方文档与 SDK
 
-### F.4.1 入门路线（1-2 个月）
+| 资源 | 链接 | 说明 |
+|------|------|------|
+| Mastra 文档 | [[mastra.ai/docs]](https://mastra.ai/docs) | TypeScript Agent 框架完整文档 |
+| Vercel AI SDK 文档 | [[ai-sdk.dev]](https://ai-sdk.dev) | 全栈 AI 应用开发工具集，支持多模型统一接口 |
+| OpenAI Agents SDK | [[openai-agents-python]](https://github.com/openai/openai-agents-python) | OpenAI 官方 Agent Python SDK |
+| AG2 | [[ag2.ai]](https://ag2.ai) | AutoGen 原始核心团队 fork 的独立项目 |
+| Anthropic Agent 指南 | [[Building effective agents]](https://www.anthropic.com/engineering/building-effective-agents) | Anthropic 工程团队的 Agent 设计权威指南 |
+
+## F.5 学习路线推荐
+
+### F.5.1 入门路线（1-2 个月）
 
 ```
 Week 1-2: LLM 基础
@@ -88,7 +100,7 @@ Week 7-8: 进阶
   └── 部署一个生产级 Agent
 ```
 
-### F.4.2 进阶路线（3-6 个月）
+### F.5.2 进阶路线（3-6 个月）
 
 ```
 Month 1: 深入架构
@@ -107,9 +119,9 @@ Month 3+: 前沿探索
   └── 行业案例深入研究
 ```
 
-## F.5 社区与会议
+## F.6 社区与会议
 
-### F.5.1 技术社区
+### F.6.1 技术社区
 
 | 社区 | 平台 | 关注点 |
 |------|------|--------|
@@ -118,7 +130,7 @@ Month 3+: 前沿探索
 | AI Agent Dev | Reddit | 综合讨论 |
 | Agent Protocol | GitHub | 协议标准化 |
 
-### F.5.2 重要会议
+### F.6.2 重要会议
 
 | 会议 | 周期 | 关注 Agent 的 Track |
 |------|------|-------------------|

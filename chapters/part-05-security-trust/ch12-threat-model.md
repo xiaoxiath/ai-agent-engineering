@@ -4,7 +4,7 @@
 
 在第 11 章（框架对比与选型）中，我们从工程角度对比了主流 Agent 框架的能力与适用场景。然而，无论选择哪个框架，安全都是不可回避的核心议题。当 Agent 拥有了调用工具、访问数据、执行代码的能力时，它同时也打开了一扇攻击者可能利用的大门。
 
-本章将系统性地构建 Agent 安全威胁模型。我们首先介绍 OWASP 发布的 Agentic Applications Top 10 风险框架，然后深入分析每个攻击面，最后通过真实世界案例和完整的 TypeScript 实现，展示如何识别、评估和防御这些威胁。本章内容将为第 13 章（Prompt 注入防御）和第 14 章（信任架构）提供威胁模型基础。
+本章将系统性地构建 Agent 安全威胁模型。我们首先介绍 OWASP 发布的 Agentic AI Top 10 风险框架（[[OWASP Agentic AI Top 10]](https://owasp.org/www-project-agentic-ai-top-10/)），然后深入分析每个攻击面，最后通过真实世界案例和完整的 TypeScript 实现，展示如何识别、评估和防御这些威胁。本章内容将为第 13 章（Prompt 注入防御）和第 14 章（信任架构）提供威胁模型基础。
 
 ---
 
@@ -14,62 +14,64 @@
 
 OWASP Top 10 for Agentic Applications 是 OWASP 专门针对自主 Agent 系统发布的安全风险分类框架。与传统 Web 应用安全（OWASP Top 10）和 LLM 应用安全（OWASP LLM Top 10）不同，该框架关注的是 Agent 系统特有的安全问题——即当 AI 系统拥有自主决策和执行能力时引入的新型风险。
 
-> **编号说明**：本书采用 ASI-01 至 ASI-10 编号，用于便于与传统 OWASP Top 10（A01-A10）和 LLM Top 10（LLM01-LLM10）区分。这些编号为本书所采用的简写，并非 OWASP 官方编号。
+> **编号说明**：OWASP Top 10 for Agentic Applications 于 2025 年 12 月正式发布，官方风险编号为 ASI01 至 ASI10。本章采用该官方编号体系，便于与传统 OWASP Top 10（A01-A10）和 LLM Top 10（LLM01-LLM10）对照。详见 [[OWASP Agentic AI Top 10]](https://owasp.org/www-project-agentic-ai-top-10/)。
 
-| 编号   | 风险名称                   | 核心威胁             | 影响等级 |
-| ------ | -------------------------- | -------------------- | -------- |
-| ASI-01 | Prompt Injection           | 指令覆盖与行为劫持   | 严重     |
-| ASI-02 | Unsafe Tool/Function Execution | 工具参数注入与滥用  | 严重     |
-| ASI-03 | Excessive Agency           | 权限过度与越权操作   | 高       |
-| ASI-04 | Insufficient Sandboxing    | 沙箱逃逸与隔离失效   | 高       |
-| ASI-05 | Memory & Context Manipulation | 记忆投毒与上下文污染 | 高       |
-| ASI-06 | Cross-Agent Trust Issues   | 跨 Agent 信任滥用    | 高       |
-| ASI-07 | Identity & Access Mismanagement | 身份冒用与凭证泄露 | 严重     |
-| ASI-08 | Insufficient Logging & Monitoring | 审计缺失与入侵无感 | 中       |
-| ASI-09 | Resource Mismanagement     | 资源耗尽与拒绝服务   | 中       |
-| ASI-10 | Cascading Failures & Effects | 级联故障与连锁失控  | 高       |
+| 编号   | 风险名称                                      | 核心威胁             | 影响等级 |
+| ------ | --------------------------------------------- | -------------------- | -------- |
+| ASI01  | Agentic Excessive Agency                      | 权限过度与越权操作   | 高       |
+| ASI02  | Agentic Prompt Injection (Direct & Indirect)  | 指令覆盖与行为劫持   | 严重     |
+| ASI03  | Agentic Supply Chain Vulnerabilities           | 供应链投毒与依赖劫持 | 严重     |
+| ASI04  | Agentic Knowledge Poisoning                    | 知识库投毒与数据污染 | 高       |
+| ASI05  | Agentic Memory Threats                         | 记忆投毒与上下文污染 | 高       |
+| ASI06  | Agentic Uncontrolled Escalation                | 不受控的级联与升级   | 高       |
+| ASI07  | Agentic Misaligned Behaviors                   | 行为偏离与目标失调   | 高       |
+| ASI08  | Agentic Identity and Access Mismanagement      | 身份冒用与凭证泄露   | 严重     |
+| ASI09  | Agentic Insufficient Logging and Monitoring    | 审计缺失与入侵无感   | 中       |
+| ASI10  | Agentic Insecure Interoperability              | 跨系统交互安全缺陷   | 高       |
 
 ### 12.1.2 各风险详细说明
 
-**ASI-01：Prompt Injection（提示注入）**
+**ASI01：Agentic Excessive Agency（过度授权）**
+
+过度授权指 Agent 拥有超出其任务需求的权限、工具或自主决策范围。一个只需要读取邮件的 Agent 如果同时拥有删除邮件、发送邮件的权限，就构成了过度授权。攻击者一旦通过 Prompt 注入控制了这样的 Agent，就能利用这些多余权限造成更大的损害。最小权限原则在 Agent 系统中尤为重要，因为 Agent 的自主行为难以完全预测和控制。OWASP 将此列为首要风险，因为过度授权是多数 Agent 攻击得以放大影响的根本原因。
+
+**ASI02：Agentic Prompt Injection（提示注入，直接与间接）**
 
 提示注入是 Agent 系统面临的最根本的安全威胁。与传统 SQL 注入类似，攻击者通过在输入中嵌入恶意指令，试图改变 Agent 的行为。在 Agent 场景下，这一威胁尤为严重，因为 Agent 能够自主调用工具执行操作。直接注入指攻击者通过用户输入通道直接注入恶意指令；间接注入则通过 Agent 读取的外部数据源（如网页、邮件、文档）植入恶意内容。间接注入的隐蔽性更强，因为恶意指令并非由用户直接提供，而是在 Agent 处理外部数据时被动触发。
 
-**ASI-02：Unsafe Tool/Function Execution（不安全的工具执行）**
+**ASI03：Agentic Supply Chain Vulnerabilities（供应链漏洞）**
 
-Agent 的核心能力在于工具调用，但这也是最大的攻击面之一。当 Agent 将 LLM 生成的参数直接传递给工具函数时，攻击者可以通过精心构造的输入，在工具参数中注入恶意内容。例如，一个数据库查询工具如果直接将 LLM 生成的 SQL 拼接到查询中，就可能遭受 SQL 注入攻击。更危险的是，MCP（Model Context Protocol）服务器可能本身就是恶意的——提供看似正常但实际上执行恶意操作的工具。
+Agent 系统的供应链涵盖工具/插件生态、MCP 服务器、第三方 API 和依赖库等。当 Agent 将 LLM 生成的参数直接传递给工具函数时，攻击者可以通过精心构造的输入，在工具参数中注入恶意内容。例如，一个数据库查询工具如果直接将 LLM 生成的 SQL 拼接到查询中，就可能遭受 SQL 注入攻击。更危险的是，MCP（Model Context Protocol）服务器可能本身就是恶意的——提供看似正常但实际上执行恶意操作的工具。供应链攻击还包括投毒流行的 npm 包、劫持 Agent 框架插件分发渠道等，其影响范围可能远超单个 Agent 实例。
 
-**ASI-03：Excessive Agency（过度授权）**
+**ASI04：Agentic Knowledge Poisoning（知识投毒）**
 
-过度授权指 Agent 拥有超出其任务需求的权限。一个只需要读取邮件的 Agent 如果同时拥有删除邮件、发送邮件的权限，就构成了过度授权。攻击者一旦通过 Prompt 注入控制了这样的 Agent，就能利用这些多余权限造成更大的损害。最小权限原则在 Agent 系统中尤为重要，因为 Agent 的自主行为难以完全预测和控制。
+Agent 依赖的知识库（RAG 数据源、向量数据库、外部文档等）可能被攻击者篡改或投毒。与直接 Prompt 注入不同，知识投毒针对的是 Agent 的数据层而非指令层。攻击者通过向公开知识源中注入虚假或恶意信息，使 Agent 在检索增强生成（RAG）过程中获取到被污染的上下文，从而做出错误决策或执行非预期操作。这种攻击的隐蔽性极高，因为被投毒的知识在形式上与正常知识无异。
 
-**ASI-04：Insufficient Sandboxing（沙箱不足）**
+**ASI05：Agentic Memory Threats（记忆威胁）**
 
-Agent 执行的代码和工具调用需要在严格隔离的环境中运行。沙箱不足意味着 Agent 可以访问不应该接触的系统资源、文件系统、网络端点或其他进程。在多 Agent 系统中，不同 Agent 之间的隔离同样重要——一个被攻陷的 Agent 不应该能够影响其他 Agent 的运行环境。
+具有长期记忆能力的 Agent 面临记忆投毒攻击。攻击者可以通过交互在 Agent 的记忆存储中植入虚假信息，这些信息会在后续交互中被检索并影响 Agent 的行为。延迟投毒攻击尤其危险——攻击者在一次交互中植入看似无害的信息，在未来某个时刻被检索时触发恶意行为。记忆威胁还包括上下文窗口污染、对话历史篡改等攻击向量。
 
-**ASI-05：Memory & Context Manipulation（记忆与上下文操控）**
+**ASI06：Agentic Uncontrolled Escalation（不受控的升级）**
 
-具有长期记忆能力的 Agent 面临记忆投毒攻击。攻击者可以通过交互在 Agent 的记忆存储中植入虚假信息，这些信息会在后续交互中被检索并影响 Agent 的行为。延迟投毒攻击尤其危险——攻击者在一次交互中植入看似无害的信息，在未来某个时刻被检索时触发恶意行为。
+在多 Agent 系统和复杂工作流中，Agent 的行为可能不受控地升级——包括权限升级、资源消耗升级和影响范围升级。单个组件的故障或安全事件可能引发连锁反应，影响整个系统。例如，一个 Agent 的异常输出可能导致下游 Agent 的决策错误，进而触发一系列不当操作。缺乏适当的熔断机制、工具调用次数上限和故障隔离策略会放大这种风险。资源耗尽攻击（Token 炸弹、无限循环、Context Window 溢出）也属于此类威胁。
 
-**ASI-06：Cross-Agent Trust Issues（跨 Agent 信任问题）**
+**ASI07：Agentic Misaligned Behaviors（行为偏离）**
 
-在多 Agent 系统中，Agent 之间需要通信和协作。如果没有建立可靠的身份验证和消息完整性机制，恶意 Agent 可以冒充合法 Agent 发送虚假指令，或者篡改 Agent 之间传递的消息。信任链的建立和维护是多 Agent 系统安全的基石。
+Agent 的实际行为可能偏离设计意图和用户期望，包括：目标漂移（Agent 在多步执行中逐渐偏离原始目标）、奖励黑客（Agent 找到满足字面指标但违背真实意图的捷径）、以及隐式目标冲突（多个约束条件之间的不可调和矛盾导致非预期行为）。在 Agent 系统中，行为偏离尤其危险，因为 Agent 的自主决策链可能在用户不知情的情况下产生远超预期的影响。沙箱隔离不足也可加剧行为偏离的后果——Agent 可以访问不应接触的系统资源、文件系统或网络端点。
 
-**ASI-07：Identity & Access Mismanagement（身份与访问管理缺陷）**
+**ASI08：Agentic Identity and Access Mismanagement（身份与访问管理缺陷）**
 
-Agent 通常代表用户执行操作，因此需要管理用户凭证和自身的服务身份。身份管理缺陷包括：凭证在 Agent 记忆中明文存储、Token 权限过大且不受约束、缺乏细粒度的访问控制、以及 Agent 身份无法被外部系统可靠验证等问题。
+Agent 通常代表用户执行操作，因此需要管理用户凭证和自身的服务身份。身份管理缺陷包括：凭证在 Agent 记忆中明文存储、Token 权限过大且不受约束、缺乏细粒度的访问控制、以及 Agent 身份无法被外部系统可靠验证等问题。在多 Agent 系统中，Agent 之间的身份认证和消息完整性同样关键——如果没有可靠的身份验证机制，恶意 Agent 可以冒充合法 Agent 发送虚假指令。
 
-**ASI-08：Insufficient Logging & Monitoring（日志与监控不足）**
+**ASI09：Agentic Insufficient Logging and Monitoring（日志与监控不足）**
 
 Agent 系统的自主性要求更高水平的可观测性。如果缺乏完善的安全日志记录和实时监控，攻击行为可能在造成损害后才被发现，甚至永远不会被发现。对于 Agent 系统来说，仅记录输入输出是不够的，还需要记录决策过程、工具调用参数、权限使用情况等详细信息。
 
-**ASI-09：Resource Mismanagement（资源管理不当）**
+**ASI10：Agentic Insecure Interoperability（不安全的互操作性）**
 
-Agent 系统可能面临资源耗尽攻击，包括：Token 炸弹（构造导致大量 Token 消耗的输入）、无限循环（Agent 陷入工具调用的死循环）、以及 Context Window 溢出（通过不断注入内容使 Agent 的上下文窗口被填满）。这些攻击可能导致拒绝服务或产生巨额 API 费用。
+Agent 系统与外部系统、API、其他 Agent 和用户之间的交互接口可能存在安全缺陷。这包括：跨 Agent 通信缺乏消息完整性验证、MCP/A2A 协议的安全配置不当、外部 API 调用缺乏适当的认证和授权、以及不同信任域之间缺乏有效的隔离。Agent 执行的代码和工具调用需要在严格隔离的环境中运行，沙箱不足意味着 Agent 可以访问不应接触的系统资源。在多 Agent 系统中，不同 Agent 之间的隔离同样重要——一个被攻陷的 Agent 不应该能够影响其他 Agent 的运行环境。
 
-**ASI-10：Cascading Failures & Effects（级联故障与连锁效应）**
 
-在复杂的多 Agent 系统或 Agent 工作流中，单个组件的故障或安全事件可能引发连锁反应，影响整个系统。例如，一个 Agent 的异常输出可能导致下游 Agent 的决策错误，进而触发一系列不当操作。缺乏适当的熔断机制和故障隔离策略会放大这种风险。
 
 ### 12.1.3 风险严重性矩阵
 
@@ -170,16 +172,16 @@ class RiskSeverityMatrix {
 // 构建 ASI Top 10 风险矩阵
 const matrix = new RiskSeverityMatrix();
 
-matrix.addRisk("ASI-01", "Prompt Injection",           5, 5);
-matrix.addRisk("ASI-02", "Unsafe Tool Execution",      5, 4);
-matrix.addRisk("ASI-03", "Excessive Agency",            4, 4);
-matrix.addRisk("ASI-04", "Insufficient Sandboxing",     4, 3);
-matrix.addRisk("ASI-05", "Memory Manipulation",         4, 3);
-matrix.addRisk("ASI-06", "Cross-Agent Trust",           4, 3);
-matrix.addRisk("ASI-07", "Identity Mismanagement",      5, 4);
-matrix.addRisk("ASI-08", "Insufficient Logging",        3, 4);
-matrix.addRisk("ASI-09", "Resource Mismanagement",      3, 3);
-matrix.addRisk("ASI-10", "Cascading Effects",           4, 3);
+matrix.addRisk("ASI01", "Excessive Agency",                   4, 4);
+matrix.addRisk("ASI02", "Prompt Injection",                    5, 5);
+matrix.addRisk("ASI03", "Supply Chain Vulnerabilities",        5, 4);
+matrix.addRisk("ASI04", "Knowledge Poisoning",                 4, 3);
+matrix.addRisk("ASI05", "Memory Threats",                      4, 3);
+matrix.addRisk("ASI06", "Uncontrolled Escalation",             4, 3);
+matrix.addRisk("ASI07", "Misaligned Behaviors",                3, 3);
+matrix.addRisk("ASI08", "Identity & Access Mismanagement",     5, 4);
+matrix.addRisk("ASI09", "Insufficient Logging & Monitoring",   3, 4);
+matrix.addRisk("ASI10", "Insecure Interoperability",           4, 3);
 
 matrix.printReport();
 ```
@@ -372,7 +374,7 @@ class ThreatAnalyzer {
     }
 
     const allASI = Array.from({ length: 10 }, (_, i) =>
-      `ASI-${String(i + 1).padStart(2, "0")}`
+      `ASI${String(i + 1).padStart(2, "0")}`
     );
 
     return allASI.filter((asi) => !coveredASI.has(asi));
@@ -437,7 +439,7 @@ analyzer.registerVector({
     "行为意图验证（执行前确认）",
     "输出过滤与敏感信息防泄露",
   ],
-  relatedASI: ["ASI-01"],
+  relatedASI: ["ASI02"],
 });
 
 // 2. 间接 Prompt 注入
@@ -460,7 +462,7 @@ analyzer.registerVector({
     "操作意图与用户原始请求一致性校验",
     "敏感操作二次确认机制",
   ],
-  relatedASI: ["ASI-01", "ASI-02"],
+  relatedASI: ["ASI02", "ASI03"],
 });
 
 // 3. 工具参数注入
@@ -483,7 +485,7 @@ analyzer.registerVector({
     "参数值白名单与范围限制",
     "最小权限数据库用户",
   ],
-  relatedASI: ["ASI-02"],
+  relatedASI: ["ASI03"],
 });
 
 // 4. MCP 工具投毒
@@ -506,7 +508,7 @@ analyzer.registerVector({
     "工具执行沙箱隔离",
     "工具行为监控与异常检测",
   ],
-  relatedASI: ["ASI-02", "ASI-06"],
+  relatedASI: ["ASI03", "ASI08"],
 });
 
 // 5. 供应链攻击
@@ -529,7 +531,7 @@ analyzer.registerVector({
     "最小依赖原则",
     "运行时完整性监控",
   ],
-  relatedASI: ["ASI-02", "ASI-04"],
+  relatedASI: ["ASI03", "ASI10"],
 });
 
 // 6. 数据外泄
@@ -552,7 +554,7 @@ analyzer.registerVector({
     "敏感数据标记与追踪",
     "网络层出站流量监控",
   ],
-  relatedASI: ["ASI-01", "ASI-02", "ASI-03"],
+  relatedASI: ["ASI02", "ASI03", "ASI01"],
 });
 
 // 7. 混淆代理攻击
@@ -575,7 +577,7 @@ analyzer.registerVector({
     "权限使用日志与异常检测",
     "最小权限原则严格执行",
   ],
-  relatedASI: ["ASI-03", "ASI-07"],
+  relatedASI: ["ASI01", "ASI08"],
 });
 
 // 8. 记忆投毒
@@ -598,7 +600,7 @@ analyzer.registerVector({
     "定期记忆审计与清理",
     "记忆检索结果异常检测",
   ],
-  relatedASI: ["ASI-05"],
+  relatedASI: ["ASI05"],
 });
 
 // 9. Agent 身份冒充
@@ -621,7 +623,7 @@ analyzer.registerVector({
     "消息来源验证与防重放",
     "Agent 行为基线与异常检测",
   ],
-  relatedASI: ["ASI-06", "ASI-07"],
+  relatedASI: ["ASI08", "ASI08"],
 });
 
 // 10. Token 炸弹
@@ -644,7 +646,7 @@ analyzer.registerVector({
     "输出长度限制",
     "速率限制与费用预警",
   ],
-  relatedASI: ["ASI-09"],
+  relatedASI: ["ASI06"],
 });
 
 // 注册攻击链示例
@@ -1080,7 +1082,7 @@ console.log(`平均风险评分: ${report.summary.averageRiskScore.toFixed(1)}`)
 
 本节深入分析前五个 ASI 风险，为每个风险提供详细的攻击演示和防御实现。
 
-### 12.3.1 ASI-01：Prompt Injection（提示注入）
+### 12.3.1 ASI02：Agentic Prompt Injection（提示注入，直接与间接）
 
 提示注入是 Agent 安全中最被广泛研究的威胁。当攻击者能够通过直接或间接方式将恶意指令注入到 LLM 的上下文中时，可能完全劫持 Agent 的行为。
 
@@ -1463,7 +1465,7 @@ for (const event of result.timeline) {
 }
 ```
 
-### 12.3.2 ASI-02：Unsafe Tool Execution（不安全的工具执行）
+### 12.3.2 ASI03：Agentic Supply Chain Vulnerabilities（供应链漏洞）
 
 工具执行安全是 Agent 系统的关键防线。以下实现了一个工具执行审计器，可以在工具调用前后进行安全检查：
 
@@ -1908,7 +1910,7 @@ for (const v of injectionResult.violations) {
 }
 ```
 
-### 12.3.3 ASI-03：Excessive Agency（过度授权）
+### 12.3.3 ASI01：Agentic Excessive Agency（过度授权）
 
 过度授权是 Agent 系统中一个常被忽视但极其危险的问题。以下实现了一个 Agent 授权审计器，用于检测和报告权限过度的 Agent：
 
@@ -2259,7 +2261,7 @@ for (const perm of minimalPerms) {
 }
 ```
 
-### 12.3.4 ASI-04：Insufficient Sandboxing（沙箱不足）
+### 12.3.4 ASI10：Agentic Insecure Interoperability（不安全的互操作性）
 
 Agent 执行环境的隔离是安全的基础保障。以下实现了一个沙箱验证器，用于检测运行时环境的隔离安全性：
 
@@ -2566,7 +2568,7 @@ console.log(`沙箱健康: ${status.healthy}`);
 console.log(`违规数量: ${status.violations.length}`);
 ```
 
-### 12.3.5 ASI-05：Memory & Context Manipulation（记忆操控）
+### 12.3.5 ASI05：Agentic Memory Threats（记忆威胁）
 
 长期记忆系统使 Agent 更加强大，但也引入了记忆投毒的风险。以下实现了一个记忆完整性检查器：
 
@@ -2953,7 +2955,7 @@ for (const indicator of report.poisoningIndicators) {
 
 本节继续深入分析后五个 ASI 风险，每个风险都配有完整的攻击场景描述和 TypeScript 防御实现。
 
-### 12.4.1 ASI-06：Cross-Agent Trust Issues（跨 Agent 信任问题）
+### 12.4.1 ASI08：Agentic Identity and Access Mismanagement（身份与访问管理缺陷）
 
 在多 Agent 系统中，Agent 之间需要可靠地识别彼此的身份并验证消息的完整性。缺乏这种信任机制，恶意 Agent 可以冒充合法 Agent 发送虚假指令。
 
@@ -3291,7 +3293,7 @@ if (signedMsg) {
 }
 ```
 
-### 12.4.2 ASI-07：Identity & Access Mismanagement（身份与访问管理缺陷）
+### 12.4.2 ASI08：Agentic Identity and Access Mismanagement（身份认证与跨 Agent 信任）
 
 Agent 需要代表用户操作外部系统，这要求健全的身份管理和凭证安全机制：
 
@@ -3698,7 +3700,7 @@ console.log(`活跃身份: ${report.activeIdentities}`);
 console.log(`Token 总数: ${report.totalTokens}`);
 ```
 
-### 12.4.3 ASI-08：Insufficient Logging & Monitoring（日志与监控不足）
+### 12.4.3 ASI09：Agentic Insufficient Logging and Monitoring（日志与监控不足）
 
 完善的安全审计日志是检测和响应安全事件的前提。以下实现了一个防篡改的安全审计日志系统：
 
@@ -4053,7 +4055,7 @@ console.log(`按级别:`, analytics.entriesByLevel);
 console.log(`按结果:`, analytics.entriesByOutcome);
 ```
 
-### 12.4.4 ASI-09：Resource Mismanagement（资源管理不当）
+### 12.4.4 ASI06：Agentic Uncontrolled Escalation（不受控的升级）
 
 Agent 系统需要防范资源耗尽攻击，包括 Token 炸弹、无限循环和内存溢出：
 
@@ -4373,7 +4375,7 @@ if (bombAlloc.allowed) {
 }
 ```
 
-### 12.4.5 ASI-10：Cascading Failures & Effects（级联故障与连锁效应）
+### 12.4.5 ASI06：Agentic Uncontrolled Escalation（级联故障与连锁效应）
 
 在多 Agent 或复杂工作流系统中，单点故障可能引发连锁反应。以下实现了一个级联故障断路器：
 
@@ -5126,7 +5128,7 @@ model.buildAttackTree({
 model.addMitigationMapping({
   threatId: "AT-001",
   threatDescription: "客户数据泄露",
-  asiCategory: "ASI-01, ASI-05",
+  asiCategory: "ASI02, ASI05",
   mitigations: [
     {
       id: "MIT-001",
@@ -5162,7 +5164,7 @@ model.addMitigationMapping({
 model.addMitigationMapping({
   threatId: "AT-002",
   threatDescription: "未授权操作",
-  asiCategory: "ASI-03, ASI-06, ASI-07",
+  asiCategory: "ASI01, ASI08, ASI08",
   mitigations: [
     {
       id: "MIT-005",
@@ -6021,16 +6023,16 @@ for (const v of forgedResult.violations) {
 
 | ASI 风险     | 防御层         | 关键防御措施                               | 相关组件                     |
 | ------------ | -------------- | ------------------------------------------ | ---------------------------- |
-| ASI-01       | 输入 + 推理    | 注入检测、内容净化、指令分离               | IndirectInjectionSimulator   |
-| ASI-02       | 执行           | 参数校验、Schema 强制、沙箱隔离            | ToolExecutionAuditor         |
-| ASI-03       | 执行           | 最小权限审计、权限组合检测                 | AgencyAuditor                |
-| ASI-04       | 执行           | 沙箱策略验证、资源隔离                     | SandboxValidator             |
-| ASI-05       | 数据           | 完整性签名、投毒检测                       | MemoryIntegrityChecker       |
-| ASI-06       | 推理 + 执行    | 消息签名、信任策略                         | CrossAgentAuthenticator      |
-| ASI-07       | 输入 + 数据    | OAuth 管理、凭证保险柜                     | AgentIdentityManager         |
-| ASI-08       | 监控           | 链式哈希日志、告警规则                     | SecurityAuditLogger          |
-| ASI-09       | 输入 + 监控    | Token 预算、速率限制                       | ResourceGovernor             |
-| ASI-10       | 监控           | 断路器、级联分析                           | CascadeBreaker               |
+| ASI01       | 执行           | 最小权限审计、权限组合检测                 | AgencyAuditor                |
+| ASI02       | 输入 + 推理    | 注入检测、内容净化、指令分离               | IndirectInjectionSimulator   |
+| ASI03       | 执行           | 参数校验、Schema 强制、供应链审计          | ToolExecutionAuditor         |
+| ASI04       | 数据           | 知识源验证、内容完整性签名                 | KnowledgeIntegrityChecker    |
+| ASI05       | 数据           | 记忆完整性签名、投毒检测                   | MemoryIntegrityChecker       |
+| ASI06       | 输入 + 监控    | Token 预算、速率限制、断路器               | ResourceGovernor, CascadeBreaker |
+| ASI07       | 推理 + 执行    | 行为对齐验证、目标一致性检测               | BehaviorAlignmentChecker     |
+| ASI08       | 输入 + 数据    | OAuth 管理、凭证保险柜、消息签名           | AgentIdentityManager, CrossAgentAuthenticator |
+| ASI09       | 监控           | 链式哈希日志、告警规则                     | SecurityAuditLogger          |
+| ASI10       | 执行           | 沙箱策略验证、资源隔离、互操作认证         | SandboxValidator             |
 
 ### 12.7.3 防御编排器
 
@@ -6478,7 +6480,7 @@ const designItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "D-01",
     category: "架构设计",
     description: "完成 STRIDE 威胁建模，覆盖所有组件和数据流",
-    asiRelated: ["ASI-01", "ASI-02", "ASI-03"],
+    asiRelated: ["ASI02", "ASI03", "ASI01"],
     priority: "must",
     phase: "design",
   },
@@ -6486,7 +6488,7 @@ const designItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "D-02",
     category: "权限设计",
     description: "为每个 Agent 定义最小权限集，文档化权限需求",
-    asiRelated: ["ASI-03"],
+    asiRelated: ["ASI01"],
     priority: "must",
     phase: "design",
   },
@@ -6494,7 +6496,7 @@ const designItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "D-03",
     category: "信任模型",
     description: "定义 Agent 间信任边界和通信协议安全要求",
-    asiRelated: ["ASI-06"],
+    asiRelated: ["ASI08"],
     priority: "must",
     phase: "design",
   },
@@ -6502,7 +6504,7 @@ const designItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "D-04",
     category: "数据分级",
     description: "对 Agent 可访问的数据进行敏感性分级",
-    asiRelated: ["ASI-05", "ASI-07"],
+    asiRelated: ["ASI05", "ASI08"],
     priority: "should",
     phase: "design",
   },
@@ -6514,7 +6516,7 @@ const devItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "V-01",
     category: "输入安全",
     description: "实现 Prompt 注入检测（含直接和间接注入）",
-    asiRelated: ["ASI-01"],
+    asiRelated: ["ASI02"],
     priority: "must",
     phase: "development",
   },
@@ -6522,7 +6524,7 @@ const devItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "V-02",
     category: "工具安全",
     description: "所有工具参数使用 Schema 校验，实现参数白名单",
-    asiRelated: ["ASI-02"],
+    asiRelated: ["ASI03"],
     priority: "must",
     phase: "development",
   },
@@ -6530,7 +6532,7 @@ const devItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "V-03",
     category: "执行环境",
     description: "Agent 执行环境使用沙箱隔离，限制文件系统和网络访问",
-    asiRelated: ["ASI-04"],
+    asiRelated: ["ASI10"],
     priority: "must",
     phase: "development",
   },
@@ -6538,7 +6540,7 @@ const devItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "V-04",
     category: "日志审计",
     description: "实现防篡改审计日志，记录所有工具调用和决策过程",
-    asiRelated: ["ASI-08"],
+    asiRelated: ["ASI09"],
     priority: "must",
     phase: "development",
   },
@@ -6546,7 +6548,7 @@ const devItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "V-05",
     category: "资源管理",
     description: "实现 Token 预算、工具调用次数限制和执行超时",
-    asiRelated: ["ASI-09"],
+    asiRelated: ["ASI06"],
     priority: "should",
     phase: "development",
   },
@@ -6554,7 +6556,7 @@ const devItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "V-06",
     category: "记忆安全",
     description: "记忆存储使用完整性签名，实现投毒检测",
-    asiRelated: ["ASI-05"],
+    asiRelated: ["ASI05"],
     priority: "should",
     phase: "development",
   },
@@ -6562,7 +6564,7 @@ const devItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "V-07",
     category: "身份管理",
     description: "Agent 凭证使用安全存储（Vault），实现 Token 自动轮转",
-    asiRelated: ["ASI-07"],
+    asiRelated: ["ASI08"],
     priority: "must",
     phase: "development",
   },
@@ -6574,7 +6576,7 @@ const testItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "T-01",
     category: "渗透测试",
     description: "执行 Prompt 注入渗透测试（含间接注入场景）",
-    asiRelated: ["ASI-01"],
+    asiRelated: ["ASI02"],
     priority: "must",
     phase: "testing",
   },
@@ -6582,7 +6584,7 @@ const testItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "T-02",
     category: "渗透测试",
     description: "执行工具参数注入测试（SQL、命令、路径遍历）",
-    asiRelated: ["ASI-02"],
+    asiRelated: ["ASI03"],
     priority: "must",
     phase: "testing",
   },
@@ -6590,7 +6592,7 @@ const testItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "T-03",
     category: "压力测试",
     description: "Token 炸弹和资源耗尽攻击测试",
-    asiRelated: ["ASI-09"],
+    asiRelated: ["ASI06"],
     priority: "should",
     phase: "testing",
   },
@@ -6598,7 +6600,7 @@ const testItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "T-04",
     category: "安全审计",
     description: "第三方依赖安全审计和漏洞扫描",
-    asiRelated: ["ASI-02", "ASI-04"],
+    asiRelated: ["ASI03", "ASI10"],
     priority: "should",
     phase: "testing",
   },
@@ -6610,7 +6612,7 @@ const prodItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "P-01",
     category: "监控告警",
     description: "配置安全事件实时告警（注入检测、异常工具调用）",
-    asiRelated: ["ASI-08"],
+    asiRelated: ["ASI09"],
     priority: "must",
     phase: "production",
   },
@@ -6618,7 +6620,7 @@ const prodItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "P-02",
     category: "熔断降级",
     description: "配置断路器和自动降级策略",
-    asiRelated: ["ASI-10"],
+    asiRelated: ["ASI06"],
     priority: "should",
     phase: "production",
   },
@@ -6626,7 +6628,7 @@ const prodItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "P-03",
     category: "定期审计",
     description: "每季度执行 Agent 权限审计，清理过度授权",
-    asiRelated: ["ASI-03"],
+    asiRelated: ["ASI01"],
     priority: "must",
     phase: "production",
   },
@@ -6634,7 +6636,7 @@ const prodItems: Omit<ChecklistItem, "verified" | "notes">[] = [
     id: "P-04",
     category: "应急响应",
     description: "建立 Agent 安全事件应急响应预案",
-    asiRelated: ["ASI-01", "ASI-06", "ASI-10"],
+    asiRelated: ["ASI02", "ASI08", "ASI06"],
     priority: "must",
     phase: "production",
   },
@@ -6677,9 +6679,9 @@ for (const item of report.unverifiedMustHave) {
 
 ## 12.8 本章小结
 
-本章系统性地构建了 Agent 安全威胁模型，从 OWASP ASI Top 10 框架出发，深入分析了每个攻击面，并通过完整的 TypeScript 实现展示了防御方案。以下是本章的核心要点：
+本章系统性地构建了 Agent 安全威胁模型，从 OWASP Agentic AI Top 10 框架（ASI01-ASI10）出发，深入分析了每个攻击面，并通过完整的 TypeScript 实现展示了防御方案。以下是本章的核心要点：
 
-**要点一：Agent 安全是新型安全领域。** Agent 系统的攻击面与传统 Web 应用和 LLM 应用有本质区别——工具调用能力、自主决策和 Agent 间通信引入了全新的安全挑战。OWASP ASI Top 10 提供了系统化的风险分类框架。
+**要点一：Agent 安全是新型安全领域。** Agent 系统的攻击面与传统 Web 应用和 LLM 应用有本质区别——工具调用能力、自主决策和 Agent 间通信引入了全新的安全挑战。OWASP Agentic AI Top 10（[[OWASP Agentic AI Top 10]](https://owasp.org/www-project-agentic-ai-top-10/)）提供了系统化的风险分类框架。
 
 **要点二：Prompt 注入是最根本的威胁。** 间接注入尤其危险，因为恶意指令来自 Agent 处理的外部数据而非用户输入。完整的防御需要多层检测——输入净化、内容扫描、意图验证和出站监控（详见 `IndirectInjectionSimulator` 的实现）。第 13 章（Prompt 注入防御）将深入展开这一主题。
 
@@ -6701,7 +6703,7 @@ for (const item of report.unverifiedMustHave) {
 
 ### 下一章预告
 
-第 13 章（Prompt 注入防御）将深入本章 ASI-01 中最为关键的 Prompt 注入问题，展开三个核心主题：
+第 13 章（Prompt 注入防御）将深入本章 ASI02 中最为关键的 Prompt 注入问题，展开三个核心主题：
 
 - **多层检测体系**：从正则表达式规则到机器学习分类器的完整检测管线设计与实现。
 - **系统 Prompt 强化**：指令层级分离、上下文标记、格式约束等系统提示词工程防御技术。

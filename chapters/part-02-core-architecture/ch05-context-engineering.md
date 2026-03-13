@@ -5,7 +5,9 @@
 
 在 Agent 系统中，**上下文（Context）** 是模型唯一能"看见"的世界。无论你的工具链多强大、规划算法多精妙，如果送入模型的上下文窗口中信息不对、不全、或者被噪声淹没，Agent 的输出就不可能正确。**上下文工程**（Context Engineering）正是围绕这一核心问题展开的系统化方法论：它研究如何为每一次 LLM 调用精心构建最优的信息输入。
 
-**术语溯源。**"Context Engineering" 这一概念由 Shopify CEO **Tobi Lutke** 于 2025 年 6 月率先提出，他主张用"上下文工程"替代"提示工程"作为更有用的思维框架。**Andrej Karpathy** 随即以"Prompt Engineering is dead; Context Engineering is the new game"将其推向更广泛的技术社区（见本章题词）。此后，这一概念被众多从业者发展为涵盖写入、选择、压缩、隔离、持久化与观测的系统化工程学科——这正是本章的主题。
+**术语溯源。**"Context Engineering" 这一概念由 Shopify CEO **Tobi Lutke** 于 2025 年 6 月率先提出，他主张用"上下文工程"替代"提示工程"作为更有用的思维框架。**Andrej Karpathy** 随即以 "Prompt Engineering is dead; Context Engineering is the new game" 将其推向更广泛的技术社区，使其成为 2025 年 Agent 工程领域最广泛使用的术语（[[Andrej Karpathy on Context Engineering]](https://x.com/karpathy/status/1937902263504371795)；见本章题词）。
+
+与此同时，Anthropic 在其 Agent 设计指南中提出了四项核心上下文管理策略——**Write（写入）、Select（选择）、Compress（压缩）、Isolate（隔离）**——为 Agent 系统的上下文工程提供了清晰的操作框架（[[Building effective agents - Anthropic]](https://www.anthropic.com/engineering/building-effective-agents)）。本章在此基础上增加 **Persist（持久化）** 与 **Observe（观测）** 两个维度，形成完整的 **WSCIPO** 六策略体系——这正是本章的主题。
 
 本章将从六大原则出发，深入探讨上下文腐化检测、多层压缩、结构化笔记、上下文传递策略、长对话管理等关键主题，并给出完整的 TypeScript 实现。
 

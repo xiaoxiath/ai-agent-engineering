@@ -29,8 +29,9 @@
 
 全书以 **TypeScript** 为主要示例语言，涉及的主要框架和工具：
 
-- **Agent 框架**：Google ADK、LangGraph、CrewAI、AutoGen
-- **协议标准**：MCP（Model Context Protocol）、A2A（Agent2Agent）、ACP
+- **Agent 框架**：Google ADK、LangGraph、CrewAI、AutoGen、OpenAI Agents SDK、Mastra、Vercel AI SDK v5
+- **协议标准**：MCP（Model Context Protocol）、A2A（Agent2Agent）、ANP（Agent Network Protocol）、ACP
+- **主流模型**：GPT-5、Claude Opus 4.6 / Sonnet 4.6、Gemini 3 Pro、DeepSeek-V3.2 / R1、Llama 4
 - **可观测性**：OpenTelemetry、LangSmith、Langfuse
 - **评估工具**：DeepEval、Arize、GAIA、SWE-bench
 

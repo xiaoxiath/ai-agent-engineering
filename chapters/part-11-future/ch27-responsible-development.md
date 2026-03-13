@@ -172,6 +172,26 @@ class AlignmentChecker {
 
 ### 27.3.1 监管合规检查器
 
+> **EU AI Act 实施时间线更新**
+>
+> [[EU AI Act]](https://artificialintelligenceact.eu/) 于 **2024 年 8 月 1 日**正式生效（entered into force）。其实施采用分阶段策略：
+>
+> - **2025.02.02**：禁止不可接受风险的 AI 系统（如社会评分系统）
+> - **2025.08.02**：通用目的 AI 模型（GPAI）的义务生效
+> - **2026.08.02**：**高风险 AI 系统的完整义务全面适用**——这是对 Agent 开发者影响最大的里程碑
+>
+> 这意味着在 EU 部署高风险 AI Agent 的组织必须在 **2026 年 8 月**前完成合规准备，包括：风险管理系统（Art. 9）、数据治理（Art. 10）、技术文档（Art. 11）、透明性要求（Art. 13）、人类监督（Art. 14）以及准确性与鲁棒性保障（Art. 15）。由于许多 Agent 系统（特别是医疗、金融、法律领域的自主决策 Agent）可能被归类为高风险 AI 系统，建议团队尽早启动合规差距分析。
+
+> **NIST AI 600-1：生成式 AI 风险管理框架**
+>
+> 美国国家标准与技术研究院（NIST）于 2024 年 7 月发布了 [[NIST AI 600-1]](https://csrc.nist.gov/pubs/ai/600/1/final)（*Artificial Intelligence Risk Management Framework: Generative Artificial Intelligence Profile*），这是对 NIST AI RMF（AI 100-1）的生成式 AI 专项补充。该框架：
+>
+> - 识别了生成式 AI 特有的 12 类风险（包括幻觉、有害内容生成、数据隐私泄露、环境影响等）
+> - 为每类风险提供了具体的管理建议和技术措施
+> - 与 EU AI Act 形成互补——前者提供风险管理方法论，后者提供法律合规要求
+>
+> 对于 Agent 开发团队，NIST AI 600-1 是建立内部风险管理流程的实用参考，特别适合作为下方合规检查器中自定义合规框架的基础。
+
 ```typescript
 interface ComplianceFramework {
   name: string;
@@ -188,6 +208,7 @@ const frameworks: ComplianceFramework[] = [
       { id: 'art-14', description: '人类监督：高风险 AI 须支持人工干预', level: 'high_risk' },
       { id: 'art-9', description: '风险管理：建立并维护风险管理系统', level: 'high_risk' },
       { id: 'art-10', description: '数据治理：确保训练数据质量和代表性', level: 'high_risk' },
+      { id: 'timeline', description: '实施时间线：2024.08 生效 → 2025.02 禁止条款 → 2025.08 GPAI 义务 → 2026.08 高风险系统完整义务', level: 'mandatory' },
     ]
   },
   {
@@ -198,6 +219,16 @@ const frameworks: ComplianceFramework[] = [
       { id: 'art-7', description: '数据合规：训练数据来源合法', level: 'mandatory' },
       { id: 'art-8', description: '标识义务：生成内容须添加 AI 标识', level: 'mandatory' },
       { id: 'art-14', description: '投诉处理：建立用户投诉处理机制', level: 'mandatory' },
+    ]
+  },
+  {
+    name: 'NIST AI 600-1 (Generative AI Profile)',
+    jurisdiction: 'United States',
+    requirements: [
+      { id: 'gov-1', description: '治理：建立生成式 AI 风险管理的治理结构', level: 'recommended' },
+      { id: 'map-1', description: '风险映射：识别 CBRN、幻觉、隐私等 12 类生成式 AI 特有风险', level: 'recommended' },
+      { id: 'measure-1', description: '测量：建立评估生成式 AI 系统可信度的量化指标', level: 'recommended' },
+      { id: 'manage-1', description: '管理：实施风险缓解措施并持续监控风险水平', level: 'recommended' },
     ]
   }
 ];

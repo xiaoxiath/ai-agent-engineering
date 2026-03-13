@@ -335,20 +335,25 @@ class AgentCapabilityAssessor {
 
 | 模型 | 上下文窗口 | 多模态 | 工具调用 | Agent能力 | 发布时间 |
 |------|-----------|--------|---------|----------|---------|
-| GPT-4o | 128K | ✅ 文本/图像/音频 | ✅ 并行调用 | ⭐⭐⭐ | 2024-05 |
-| Claude 3.5 Sonnet | 200K | ✅ 文本/图像/PDF | ✅ 并行+MCP | ⭐⭐⭐⭐ | 2024-06 |
-| Claude 4 Opus | 200K | ✅ 文本/图像/PDF | ✅ 并行+MCP+Computer Use | ⭐⭐⭐⭐⭐ | 2025-03 |
-| Gemini 2.5 Pro | 1M | ✅ 文本/图像/音频/视频 | ✅ 原生调用 | ⭐⭐⭐⭐ | 2025-03 |
-| o3 | 200K | ✅ 文本/图像 | ✅ 并行调用 | ⭐⭐⭐⭐ | 2025-04 |
+| GPT-5 | 1M | ✅ 原生多模态推理（文本/图像/音频） | ✅ 并行调用+自适应推理 | ⭐⭐⭐⭐ | 2025-08 |
+| o3 | 200K | ✅ 文本/图像（视觉推理） | ✅ 并行调用+全工具访问 | ⭐⭐⭐⭐ | 2025-04 |
+| o4-mini | 200K | ✅ 文本/图像 | ✅ 并行调用 | ⭐⭐⭐ | 2025-04 |
+| Claude Opus 4.6 | 200K（1M beta） | ✅ 文本/图像/PDF | ✅ 并行+MCP+Computer Use+Extended Thinking | ⭐⭐⭐⭐⭐ | 2026-02 |
+| Claude Sonnet 4.6 | 200K（1M beta） | ✅ 文本/图像/PDF | ✅ 并行+MCP+Computer Use+Adaptive Thinking | ⭐⭐⭐⭐⭐ | 2026-02 |
+| Gemini 3 Pro | 1M | ✅ 原生多模态（文本/图像/音频/视频） | ✅ 原生调用+Deep Think | ⭐⭐⭐⭐⭐ | 2026-02 |
+| DeepSeek-V3.2 | 164K | ✅ 文本 | ✅ Thinking in Tool-Use | ⭐⭐⭐⭐ | 2025-12 |
 | DeepSeek-R1 | 128K | ✅ 文本 | ✅ 工具调用 | ⭐⭐⭐ | 2025-01 |
-| GLM-4 | 128K | ✅ 文本/图像 | ✅ 工具调用 | ⭐⭐⭐ | 2024-06 |
+| Llama 4 Scout | 10M | ✅ 原生多模态（文本/图像） | ✅ 工具调用 | ⭐⭐⭐ | 2025-04 |
+| Llama 4 Maverick | 1M | ✅ 原生多模态（文本/图像） | ✅ 工具调用 | ⭐⭐⭐⭐ | 2025-04 |
 
 关键进步：
-- 上下文窗口从 4K 扩展到 1M tokens（Gemini 2.5 Pro），Claude 4 Opus 支持 200K 上下文并原生支持 Agent 编排与 Computer Use
+- 上下文窗口从 4K 扩展到 10M tokens（Llama 4 Scout[[Meta Llama 4 Announcement]](https://ai.meta.com/blog/llama-4-multimodal-intelligence/)），Gemini 3 Pro 支持 1M 上下文并原生支持 Deep Think 推理模式[[Google Gemini 3 Announcement]](https://blog.google/products-and-platforms/products/gemini/gemini-3/)
 - 原生工具使用能力（不再需要 hack），MCP 协议成为行业标准
 - 结构化输出保证（JSON Schema 约束）
-- 推理能力质的飞跃（o3 推理链、DeepSeek-R1 开源推理模型、Gemini 2.5 Pro Deep Think 模式）
-- 开源模型崛起：DeepSeek-R1 在多项推理基准上达到与闭源前沿模型可比的水平
+- 推理能力质的飞跃（o3/o4-mini 推理链[[OpenAI o3 and o4-mini Announcement]](https://openai.com/index/introducing-o3-and-o4-mini/)、DeepSeek-R1 开源推理模型、Gemini 3 Pro Deep Think 模式）
+- Claude 4.6 系列原生支持 Agent 编排、Computer Use 与 Extended Thinking，成为 Agent 开发首选模型之一[[Anthropic Claude Opus 4.6]](https://www.anthropic.com/claude/opus)[[Anthropic Claude Sonnet 4.6]](https://www.anthropic.com/news/claude-sonnet-4-6)
+- 开源模型崛起：DeepSeek-V3.2 采用 MoE 架构（685B 参数，37B 激活）在推理效率上实现突破[[DeepSeek-V3.2 Release]](https://api-docs.deepseek.com/news/news251201)；Llama 4 系列同样采用 MoE 架构，Scout 以 109B 参数实现 10M 上下文[[Meta Llama 4 Announcement]](https://ai.meta.com/blog/llama-4-multimodal-intelligence/)
+- Agent 基准测试大幅提升：SWE-bench Verified 最高准确率达到约 79.2%（Sonar Foundation Agent）[[Sonar Claims Top Spot on SWE-bench]](https://www.sonarsource.com/company/press-releases/sonar-claims-top-spot-on-swe-bench-leaderboard/)，WebArena 最高达到约 71.6%（OpAgent），标志着 AI Agent 在真实软件工程和网页操作任务上已接近实用水平
 
 ### 1.3.2 标准协议的诞生
 

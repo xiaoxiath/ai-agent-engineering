@@ -424,7 +424,7 @@ console.log(assessor.formatReport(report));
 
 ### 17.2.1 OpenTelemetry GenAI 语义约定
 
-OpenTelemetry 社区正在制定 GenAI 相关的语义约定（Semantic Conventions），为 LLM 调用和 Agent 操作定义标准化的属性名称。遵循这些约定不仅能确保跨系统的互操作性，还能让我们直接使用社区构建的分析工具和仪表板。
+OpenTelemetry 的 GenAI 语义约定（Semantic Conventions for GenAI）已于 2025 年达到 **stable（稳定）** 状态（[[Semantic Conventions for GenAI]](https://opentelemetry.io/docs/specs/semconv/gen-ai/)），为 LLM 调用和 Agent 操作定义了标准化的属性名称。这一里程碑意味着 `gen_ai.*` 命名空间下的核心属性——包括 `gen_ai.system`（AI 系统标识）、`gen_ai.request.model`（请求模型）、`gen_ai.usage.input_tokens`/`gen_ai.usage.output_tokens`（Token 用量）等——已被正式纳入 OpenTelemetry 规范，保证向后兼容。遵循这些约定不仅能确保跨系统的互操作性，还能让我们直接使用社区构建的分析工具和仪表板。
 
 以下是 Agent 系统中关键的语义属性规范：
 
@@ -455,11 +455,22 @@ OpenTelemetry 社区正在制定 GenAI 相关的语义约定（Semantic Conventi
 
 > **从自定义属性到 GenAI 语义约定的迁移**
 >
-> 在 OpenTelemetry GenAI 语义约定（Semantic Conventions v1.30+）正式发布之前，社区和各厂商普遍使用自定义命名空间（如 `agent.*`、`llm.*`、`tool.*`）来标注 AI 相关的 Span 属性。这种碎片化导致了严重的互操作性问题——Langfuse、Arize Phoenix、OpenLLMetry 等可观测性工具各自期望不同的属性名称，团队不得不为每个平台编写适配层，或者在切换工具时面临大量数据迁移工作。
+> 在 OpenTelemetry GenAI 语义约定达到稳定状态之前（2025 年以前），社区和各厂商普遍使用自定义命名空间（如 `agent.*`、`llm.*`、`tool.*`）来标注 AI 相关的 Span 属性。这种碎片化导致了严重的互操作性问题——Langfuse、Arize Phoenix、OpenLLMetry 等可观测性工具各自期望不同的属性名称，团队不得不为每个平台编写适配层，或者在切换工具时面临大量数据迁移工作。
 >
 > GenAI 语义约定通过统一的 `gen_ai.*` 命名空间解决了这一问题。所有 LLM 调用相关属性归入 `gen_ai.request.*`、`gen_ai.response.*`、`gen_ai.usage.*`；Agent 行为属性归入 `gen_ai.agent.*`；工具调用属性归入 `gen_ai.tool.*`。这种层次化的命名设计不仅提升了可读性，更重要的是实现了跨平台的零配置兼容——任何遵循该约定的 Exporter 和分析工具都能自动识别和解析这些属性，无需额外映射。
 >
 > 本章所有代码示例均已迁移至 `gen_ai.*` 标准命名空间。如果你的系统中仍在使用旧的自定义属性名（如 `agent.name`、`llm.duration_ms`），建议尽快完成迁移。迁移过程中可以通过 OpenTelemetry Collector 的 `transform` processor 同时输出新旧两套属性名，实现平滑过渡。详细的属性映射关系和迁移指南请参考 [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) 官方文档。
+
+> **主流 Agent 可观测性平台**
+>
+> 围绕 OpenTelemetry GenAI 语义约定，已涌现出多个专为 LLM/Agent 设计的可观测性平台：
+>
+> - **[[LangSmith]](https://docs.smith.langchain.com/)**：LangChain 官方平台，提供 Agent 链路追踪、Prompt 版本管理、在线评估和数据集管理，与 LangChain/LangGraph 生态深度集成。
+> - **[[Langfuse]](https://langfuse.com/)**（开源）：开源的 LLM 可观测性平台，支持链路追踪、Prompt 管理、评估评分和成本分析。自托管友好，兼容 OpenTelemetry 导出，适合对数据主权有要求的团队。
+> - **[[Arize Phoenix]](https://phoenix.arize.com/)**：Arize AI 的开源追踪与评估工具，专注于 LLM 应用的 Span 级可视化、嵌入向量分析和在线评估，支持 OpenTelemetry 原生集成。
+> - **[[Braintrust]](https://www.braintrust.dev/)**：端到端的 AI 产品平台，集 Prompt Playground、在线评估、日志追踪和数据集管理于一体，以评估驱动的开发工作流（eval-driven development）为核心理念。
+>
+> 这些平台均支持或正在对齐 `gen_ai.*` 语义约定，选型时应重点考虑：与现有技术栈的集成度、自托管 vs 托管需求、评估与追踪的深度、以及团队规模与预算。
 
 ### 17.2.2 OpenTelemetry SDK 初始化
 

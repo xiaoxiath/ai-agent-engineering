@@ -40,12 +40,28 @@ interface ModelPricing {
  * 数据来源：各提供商官方定价页面
  * 最后更新：2026-03
  *
+ * ⚠️ 注意：LLM 定价下降速度极快，以下数据仅作为近似参考点。
+ * 建议定期查阅各提供商官方定价页面获取最新价格。
+ *
  * 注意：Anthropic 的提示缓存提供 90% 的输入折扣；
  *       OpenAI 批处理 API 提供 50% 的折扣；
  *       Google 对 128K 以上的上下文有不同定价。
  */
 const MODEL_PRICING_2026: readonly ModelPricing[] = [
   // === OpenAI 系列 ===
+  {
+    modelId: "gpt-5",
+    provider: "openai",
+    inputPricePerMillion: 10.00,
+    outputPricePerMillion: 30.00,
+    cachedInputPricePerMillion: 5.00,
+    batchInputPricePerMillion: 5.00,
+    batchOutputPricePerMillion: 15.00,
+    contextWindow: 256_000,
+    maxOutputTokens: 32_768,
+    tier: "flagship",
+    capabilities: ["vision", "function_calling", "json_mode", "streaming", "reasoning", "agent_native"],
+  },
   {
     modelId: "gpt-4o",
     provider: "openai",
@@ -172,6 +188,20 @@ const MODEL_PRICING_2026: readonly ModelPricing[] = [
     capabilities: ["function_calling", "json_mode", "fim"],
   },
   {
+  {
+    modelId: "deepseek-v3.2",
+    provider: "deepseek",
+    inputPricePerMillion: 0.27,
+    outputPricePerMillion: 1.10,
+    cachedInputPricePerMillion: 0.07,
+    batchInputPricePerMillion: 0.135,
+    batchOutputPricePerMillion: 0.55,
+    contextWindow: 256_000,
+    maxOutputTokens: 16_384,
+    tier: "economy",
+    capabilities: ["function_calling", "json_mode", "fim", "reasoning_light"],
+  },
+  {
     modelId: "deepseek-r1",
     provider: "deepseek",
     inputPricePerMillion: 0.55,
@@ -215,6 +245,25 @@ const MODEL_PRICING_2026: readonly ModelPricing[] = [
     capabilities: ["reasoning", "function_calling", "chain_of_thought"],
   },
 ] as const;
+
+
+// ────────────────────────────────────────────────────────────
+// 💡 成本优化三大策略速览（详见 19.3–19.5 节）
+//
+// 1. **提示缓存（Prompt Caching）**：Anthropic 和 OpenAI 均支持提示缓存，
+//    对长系统提示词可获得 50%–90% 的输入折扣。Anthropic 提供 90% 折扣
+//    （cachedInputPrice），OpenAI 提供 50% 折扣。对于包含长系统提示词的
+//    Agent 场景，这是 ROI 最高的优化手段。
+//
+// 2. **批处理 API 折扣（Batch API）**：OpenAI 和 Anthropic 的 Batch API
+//    提供 50% 折扣。非实时任务（文档分析、报告生成、数据标注）应优先
+//    路由到批处理通道，在零质量损失前提下直接减半成本。
+//
+// 3. **模型路由（Model Routing）**：并非所有任务都需要旗舰模型。简单任务
+//    路由到经济模型（GPT-4o-mini、Gemini 3 Flash、DeepSeek-V3.2）可
+//    节省 80%–95% 成本。DeepSeek-V3.2 以 ~$0.27/$1.10 的极低价格
+//    提供了令人印象深刻的质量，是当前最具性价比的选择之一。
+// ────────────────────────────────────────────────────────────
 
 /** 定价注册表 - 快速查询 */
 class PricingRegistry {

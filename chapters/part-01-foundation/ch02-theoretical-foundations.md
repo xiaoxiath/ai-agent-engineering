@@ -2831,7 +2831,122 @@ function selectReasoningBudget(taskComplexity: number): ReasoningBudget {
 }
 ```
 
-### 2.9.3 对 Agent 架构的影响
+### 2.9.3 主要推理模型详解
+
+上述 Thinking Tokens 范式在多个模型家族中得到了不同方向的探索。以下逐一分析对 Agent 工程影响最大的几个推理模型。
+
+#### OpenAI o3 与 o4-mini
+
+OpenAI 的推理模型经历了 o1 → o3 → o4-mini 的快速迭代。[[Introducing OpenAI o3 and o4-mini]](https://openai.com/index/introducing-o3-and-o4-mini/)
+
+- **o3（2025 年初）**：在 o1 基础上大幅提升了推理效率和准确率。o3 在 ARC-AGI 基准、竞赛级数学和复杂软件工程任务上展现了显著进步，同时优化了推理链——减少了冗余推理步骤，在保持准确率的前提下降低了 thinking token 消耗。
+- **o4-mini（2025 年）**：面向高吞吐 Agent 工作负载设计的小型推理模型。o4-mini 保留了核心推理能力，但成本大幅降低，使其在生产级 Agent 系统中可被频繁调用。它代表了 OpenAI 在推理能力上提供多层次性价比选择的策略——Agent 的简单决策步骤可以使用 o4-mini，而复杂规划步骤使用 o3。
+
+```typescript
+/**
+ * 根据步骤类型选择推理模型
+ * 生产系统中的典型模式：不同步骤使用不同推理预算
+ */
+function selectReasoningModel(step: AgentStep): { model: string; budget: ReasoningBudget } {
+  switch (step.type) {
+    case 'planning':
+      // 复杂规划使用 o3，高推理预算
+      return { model: 'o3', budget: { maxThinkingTokens: 32768, strategy: 'high' } };
+    case 'tool_selection':
+      // 工具选择使用 o4-mini，中等预算
+      return { model: 'o4-mini', budget: { maxThinkingTokens: 4096, strategy: 'medium' } };
+    case 'formatting':
+      // 格式化输出无需推理模型
+      return { model: 'gpt-4o-mini', budget: { maxThinkingTokens: 0, strategy: 'low' } };
+    default:
+      return { model: 'o4-mini', budget: { maxThinkingTokens: 8192, strategy: 'medium' } };
+  }
+}
+```
+
+#### DeepSeek-R1：基于强化学习的开源推理模型
+
+**DeepSeek-R1** 是开源推理模型的里程碑。它证明了强大的推理能力可以通过 **强化学习（RL）** 而非仅依赖人工标注的推理示例来实现。[[DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning]](https://arxiv.org/abs/2501.12948)
+
+DeepSeek-R1 的核心创新包括：
+
+1. **RL 驱动的推理训练**：使用 Group Relative Policy Optimization（GRPO）算法，模型以正确的最终答案作为奖励信号，通过 RL 自主学习产生有效的 Chain-of-Thought 推理——推理能力是“涌现”出来的，而非从人工示例中模仿的。
+
+2. **蒸馏技术（Distillation）**：DeepSeek-R1 最具影响力的贡献之一是展示了推理能力的**知识蒸馏**路径。具体做法是：先用完整的 R1 模型生成大量高质量推理 trace，再用这些 trace 对较小的模型（如 Qwen-2.5、Llama-3 的 1.5B 到 70B 参数变体）进行微调。蒸馏后的小模型获得了与其参数规模不成比例的强大推理能力。这一技术已成为业界广泛采用的范式。
+
+3. **开放权重**：R1 系列以开放权重形式发布，使得开发者可以在本地部署推理模型并针对特定领域的 Agent 应用进行微调——这对受监管行业中的 Agent 部署尤其重要。
+
+```typescript
+/**
+ * DeepSeek-R1 蒸馏模型选择器
+ * 根据部署约束选择合适的蒸馏变体
+ */
+interface DistilledModelSpec {
+  name: string;
+  parameterSize: string;
+  reasoningQuality: 'high' | 'medium' | 'moderate';
+  memoryRequirement: string;
+  useCase: string;
+}
+
+const DEEPSEEK_R1_VARIANTS: DistilledModelSpec[] = [
+  {
+    name: 'DeepSeek-R1-Distill-Llama-70B',
+    parameterSize: '70B',
+    reasoningQuality: 'high',
+    memoryRequirement: '~140GB (FP16)',
+    useCase: '高质量推理，多 GPU 服务器部署',
+  },
+  {
+    name: 'DeepSeek-R1-Distill-Qwen-14B',
+    parameterSize: '14B',
+    reasoningQuality: 'medium',
+    memoryRequirement: '~28GB (FP16)',
+    useCase: '单 GPU 部署，平衡推理质量与成本',
+  },
+  {
+    name: 'DeepSeek-R1-Distill-Qwen-1.5B',
+    parameterSize: '1.5B',
+    reasoningQuality: 'moderate',
+    memoryRequirement: '~3GB (FP16)',
+    useCase: '边缘设备，低延迟场景',
+  },
+];
+```
+
+#### GPT-5：“推理即默认”
+
+2025 年发布的 **GPT-5** 模糊了推理模型与标准模型的界限。GPT-5 将 Chain-of-Thought 推理**内置为默认行为**——模型根据查询复杂度自动调节推理深度，无需开发者在“快速模型”（如 GPT-4o）和“推理模型”（如 o3）之间手动切换。
+
+这一设计对 Agent 工程的影响：
+
+- **统一模型体验**：Agent 不再需要维护“简单问题→快速模型”和“复杂问题→推理模型”的路由逻辑，GPT-5 自动适配。
+- **模型边界模糊化**：“推理模型”与“标准模型”的区分正在失去意义。行业趋势指向推理能力成为模型的内建特性而非独立的产品类别。
+- **简化 Agent 架构**：单一模型端点即可同时处理快速工具调用和深度多步规划，降低了系统复杂度。
+
+#### Claude 的 Extended Thinking
+
+Anthropic 通过 **extended thinking**（扩展思考）提供了另一种推理架构。启用后，Claude 在生成最终回复之前使用一个专门的思考阶段来推理复杂问题。[[Extended thinking - Anthropic]](https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking)
+
+关键特性：
+
+- **可配置的推理预算**：开发者可以设定最大 thinking token 数，精确控制推理深度与延迟/成本之间的权衡。
+- **流式思考过程**：思考过程可以流式传输到应用层，允许 Agent 编排器实时监控推理状态并在必要时介入。
+- **与工具调用的结合**：Extended thinking 可以与 Claude 的工具调用能力结合，模型可以先深度推理应该调用哪些工具、如何解读工具结果，再执行动作。
+
+Extended thinking 对涉及复杂规划、多约束优化、或需要在不确定性和边界情况之间进行推理的 Agent 应用尤为有价值。
+
+#### 推理模型格局总结
+
+| 模型 | 提供者 | 开放性 | 核心机制 | Agent 典型用途 |
+|------|--------|--------|---------|--------------|
+| o3 | OpenAI | 闭源 API | 内部 CoT，可配置推理预算 | 复杂规划、数学推理 |
+| o4-mini | OpenAI | 闭源 API | 轻量级内部 CoT | 高频工具选择、中等推理 |
+| GPT-5 | OpenAI | 闭源 API | 推理即默认，自动适配 | 通用 Agent（统一端点） |
+| DeepSeek-R1 | DeepSeek | 开放权重 | RL 训练 + 蒸馏 | 本地部署、领域定制 |
+| Claude (Extended Thinking) | Anthropic | 闭源 API | 可配置 thinking phase | 长链推理、安全关键场景 |
+
+### 2.9.4 对 Agent 架构的影响
 
 Inference-Time Compute Scaling 对 Agent 系统设计产生了深远影响：
 
@@ -2919,6 +3034,8 @@ interface UnreliabilityTax {
 5. **认知架构**（2.5 节）：BDI 的信念-愿望-意图管理、ACT-R 的记忆激活模型、SOAR 的问题空间搜索，这些经典架构中的设计模式至今仍对 LLM Agent 有直接指导价值。
 
 6. **LLM 作为推理引擎**（2.6-2.8 节）：涌现能力与 Scaling Laws 决定了 LLM 的能力边界，ICL 和 CoT 是 Agent 利用 LLM 的核心机制，Context Engineering 是管理复杂上下文的系统方法论。
+
+7. **推理时计算扩展**（2.9 节）：从 OpenAI o1/o3/o4-mini 到 DeepSeek-R1 的开源 RL 路径，从 GPT-5 的“推理即默认”到 Claude 的 Extended Thinking，推理模型深刻改变了 Agent 的规划质量、错误恢复能力和成本结构。
 
 这些理论不是抽象的学术知识，而是你在后续章节中进行每一个工程决策的理论依据。当你在第三章选择架构模式时、在第四章设计工具系统时、在第六章构建多 Agent 系统时，请回来翻阅本章——理论会告诉你为什么某些设计是好的，而另一些注定会失败。
 

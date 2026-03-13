@@ -5933,7 +5933,7 @@ class GoogleAdapter implements ProviderAdapter {
         qualityTier: 'economy',
       },
       {
-        id: 'gemini-2.5-pro', provider: 'google', displayName: 'Gemini 2.5 Pro',
+        id: 'gemini-3-pro', provider: 'google', displayName: 'Gemini 3 Pro',
         contextWindow: 1000000, maxOutputTokens: 65536,
         supportsToolCalling: true, supportsVision: true, supportsStreaming: true,
         inputPricePer1kTokens: 0.00125, outputPricePer1kTokens: 0.01,
@@ -6655,7 +6655,7 @@ async function modelGatewayDemo(): Promise<void> {
         failoverOn: ['error', 'timeout', 'rate_limit'], timeoutMs: 60000 },
       { provider: 'openai', model: 'o1',
         failoverOn: ['error', 'timeout', 'rate_limit'], timeoutMs: 60000 },
-      { provider: 'google', model: 'gemini-2.5-pro',
+      { provider: 'google', model: 'gemini-3-pro',
         failoverOn: ['error', 'timeout'], timeoutMs: 60000 },
     ],
   });
@@ -8684,7 +8684,59 @@ async function enterpriseIntegrationDemo(): Promise<void> {
 
 ---
 
-## 21.9 本章小结
+## 21.9 新兴 Agent 产品与平台
+
+除了上述通用平台架构和企业集成模式，2025–2026 年涌现了一批值得关注的 Agent 产品和平台特性。它们代表了 Agent 技术从基础设施走向终端用户的关键趋势。
+
+### 21.9.1 OpenAI Codex
+
+**[[OpenAI Codex]](https://openai.com/index/introducing-codex/)** 是 OpenAI 推出的全自主编码 Agent 平台。与早期的代码补全工具不同，Codex 是一个完整的 Agent 系统：
+
+- **云端沙箱执行**：每个任务在隔离的云端沙箱中运行，Agent 可以自主读写文件、运行测试、安装依赖
+- **后台自主运行**：用户提交任务后，Codex 在后台独立工作，完成后通知用户审查结果
+- **端到端软件工程**：支持从需求理解、代码编写、测试验证到 PR 创建的完整开发流程
+- **多文件协调修改**：能够理解项目结构，跨多个文件进行协调一致的修改
+
+Codex 的架构设计体现了 Agent 系统的一个关键理念：**将 Agent 放入受控的执行环境中，赋予其足够的工具和权限来自主完成复杂任务，同时通过沙箱隔离确保安全性**。这与本章 21.1 节讨论的平台运行时管理思路一致。
+
+### 21.9.2 Claude CoWork
+
+**Claude CoWork** 是 Anthropic 推出的多 Agent 协作工作区功能。它允许用户在与 Claude 的对话中，将子任务委派给多个并行运行的子 Agent：
+
+- **任务委派**：主 Agent（Claude）可以根据用户请求，自动将子任务分配给专门的子 Agent
+- **并行执行**：多个子 Agent 可以同时工作，各自负责不同的子任务（如分别研究不同主题、分析不同数据源）
+- **结果汇总**：子 Agent 完成后，主 Agent 汇总各子 Agent 的结果，生成统一的最终输出
+- **用户可见性**：用户可以实时观察各子 Agent 的工作进度和中间结果
+
+CoWork 是第 9–10 章讨论的多 Agent 架构模式在商业产品中的直接体现——特别是 **Orchestrator-Worker 模式**的落地实现。它降低了多 Agent 协作的使用门槛，让非技术用户也能受益于并行化的 Agent 工作流。
+
+### 21.9.3 Microsoft Connected Agents
+
+**[[Microsoft Connected Agents]](https://www.microsoft.com/en-us/microsoft-copilot/blog/copilot-studio/introducing-connected-agents-for-copilot-studio/)** 是 Azure AI Foundry 推出的 Agent 互操作特性，旨在解决企业中不同团队、不同平台构建的 Agent 之间的协作问题：
+
+- **跨平台互操作**：允许在 Copilot Studio 中构建的 Agent 与其他框架（如 LangChain、Semantic Kernel）构建的 Agent 相互发现和调用
+- **统一注册与发现**：通过 Azure AI Foundry 的 Agent 注册中心，企业内所有 Agent 可被统一管理和发现
+- **安全委派**：Agent 之间的调用遵循企业安全策略，包括身份验证、权限控制和审计日志
+- **生态连接**：支持将第三方 Agent 接入 Microsoft 365 Copilot 生态，扩展 Copilot 的能力边界
+
+这一特性与本章 21.5 节讨论的 Agent Mesh 概念高度契合，也与第 20 章的 Agent 互操作协议形成互补——Connected Agents 提供了协议的商业化落地方案。
+
+### 21.9.4 Manus
+
+**[[Manus]](https://manus.im/)** 是 2025 年创立的 AI Agent 产品，以其面向消费者的通用 Agent 能力引发了广泛关注：
+
+- **通用任务执行**：Manus 定位为"通用 AI Agent"，能够处理从信息研究、数据分析到内容创作的多种任务
+- **自主浏览与操作**：Agent 可以自主浏览网页、填写表单、与在线服务交互
+- **端到端交付物**：不只是给出建议或文本回复，而是直接生成可用的交付物（文档、表格、报告等）
+- **异步任务模式**：支持提交任务后在后台运行，完成后通知用户——类似 Codex 的异步模式
+
+Manus 的意义在于展示了 **Agent 作为消费级产品**的可能性。相比面向开发者的 Agent 框架和面向企业的 Agent 平台，Manus 证明了 Agent 技术可以直接服务于终端用户，这一趋势值得所有 Agent 工程团队关注。
+
+> **新兴平台启示**：上述四个产品/特性共同指向 Agent 技术的两大趋势：（1）**自主性增强**——Agent 从辅助工具进化为能独立完成复杂任务的自主系统；（2）**协作成为标配**——多 Agent 协作不再是研究课题，而是商业产品的核心卖点。这也预示着本书第 9–10 章讨论的多 Agent 模式将在未来几年变得更加重要。
+
+---
+
+## 21.10 本章小结
 
 本章从**平台架构**到**企业集成**，全面探讨了构建生产级 Agent 生态系统所需的各个层面。让我们回顾核心要点：
 

@@ -252,16 +252,11 @@ class ToolContextCostAnalyzer {
     return suggestions;
   }
 
-  /** 估算文本的 token 数 */
+  /** 估算文本的 token 数 — 与第 5 章使用统一的双语估算逻辑 */
   private static estimateTokens(text: string): number {
-    let enChars = 0, zhChars = 0;
-    for (const ch of text) {
-      if (/[\u4e00-\u9fff]/.test(ch)) zhChars++;
-      else enChars++;
-    }
-    return Math.ceil(
-      enChars / this.CHARS_PER_TOKEN_EN + zhChars / this.CHARS_PER_TOKEN_ZH
-    );
+    const chinese = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+    const other = text.length - chinese;
+    return Math.ceil(chinese / this.CHARS_PER_TOKEN_ZH + other / this.CHARS_PER_TOKEN_EN);
   }
 
   /** 估算 JSON Schema 的 token 数 */
@@ -359,7 +354,7 @@ JSDoc: ${meta.jsdoc || '无'}
     return {
       description,
       quality,
-      tokenCost: Math.ceil(description.length / 4),
+      tokenCost: Math.ceil(description.length / 4), // 简化估算，精确版本见 ToolContextCostAnalyzer.estimateTokens
     };
   }
 
@@ -1269,13 +1264,14 @@ class OutputSizeGuard implements ToolGuard {
    * 在 ToolExecutionWrapper 中调用
    */
   truncateOutput(output: string): TruncationResult {
-    const estimatedTokens = Math.ceil(output.length / 3); // 粗略估算
+    // Token 估算：统一使用 ~4 字符/token 的近似比例（与第 5 章一致）
+    const estimatedTokens = Math.ceil(output.length / 4);
 
     if (estimatedTokens <= this.maxOutputTokens) {
       return { output, truncated: false, originalTokens: estimatedTokens };
     }
 
-    const maxChars = this.maxOutputTokens * 3;
+    const maxChars = this.maxOutputTokens * 4;
     let truncated: string;
 
     switch (this.truncationStrategy) {
@@ -2242,7 +2238,17 @@ class SSETransport extends EventEmitter {
     }
   }
 
-  /** 发送 JSON-RPC 请求 */
+  /**
+   * 发送 JSON-RPC 请求
+   *
+   * 设计说明：MCP SSE 传输中，请求通过 HTTP POST 发出，
+   * 响应通过独立的 SSE 流异步返回。因此需要一个 Promise
+   * 来桥接"发送请求"和"收到响应"两个异步事件。
+   *
+   * 注意避免 `new Promise(async ...)` 反模式——async executor
+   * 中未被 catch 的异常会被静默吞掉。正确做法是将 async 操作
+   * 放在 Promise 外部，仅用 Promise 追踪 SSE 侧的异步响应。
+   */
   async request(method: string, params?: Record<string, unknown>): Promise<unknown> {
     if (!this.sessionUrl) {
       throw new Error('尚未建立会话连接');
@@ -2256,36 +2262,49 @@ class SSETransport extends EventEmitter {
       params,
     };
 
-    return new Promise(async (resolve, reject) => {
+    // 1. 先创建响应追踪 Promise（由 SSE 流中的 handleMessage 触发 resolve）
+    const responsePromise = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error(`请求超时 (${this.timeoutMs}ms): ${method}`));
       }, this.timeoutMs);
 
       this.pendingRequests.set(id, { resolve, reject, timer });
-
-      try {
-        const response = await fetch(this.sessionUrl!, {
-          method: 'POST',
-          headers: {
-            ...this.headers,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(request),
-        });
-
-        if (!response.ok) {
-          clearTimeout(timer);
-          this.pendingRequests.delete(id);
-          reject(new Error(`HTTP 错误: ${response.status}`));
-        }
-        // 响应通过 SSE 流返回，此处不需要处理 response body
-      } catch (err) {
-        clearTimeout(timer);
-        this.pendingRequests.delete(id);
-        reject(err);
-      }
     });
+
+    // 2. 发送 HTTP POST 请求（async 操作在 Promise 外部，异常自然向上抛出）
+    try {
+      const response = await fetch(this.sessionUrl, {
+        method: 'POST',
+        headers: {
+          ...this.headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        // 发送失败，清理 pending 状态
+        const pending = this.pendingRequests.get(id);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.pendingRequests.delete(id);
+        }
+        throw new Error(`HTTP 错误: ${response.status}`);
+      }
+    } catch (err) {
+      // 网络错误或 HTTP 错误，清理 pending 状态
+      const pending = this.pendingRequests.get(id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingRequests.delete(id);
+      }
+      throw err;
+    }
+
+    // 3. 等待 SSE 流返回对应的响应
+    // 响应通过 handleMessage → pendingRequests.get(id).resolve 触发
+    return responsePromise;
   }
 
   /** 处理收到的响应消息 */

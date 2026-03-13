@@ -436,15 +436,16 @@ class ContextSelector {
     return rawScore / maxScore;
   }
 
+  /**
+   * 余弦相似度计算 — 全书标准实现
+   * 衡量两个向量在方向上的相似程度，返回 [-1, 1] 区间的值
+   * 完整实现请参考 code-examples/shared/utils.ts
+   */
   private cosineSimilarity(a: number[], b: number[]): number {
-    let dot = 0, normA = 0, normB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    const denom = Math.sqrt(normA) * Math.sqrt(normB);
-    return denom === 0 ? 0 : dot / denom;
+    const dotProduct = a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+    const magnitudeA = Math.sqrt(a.reduce((sum, ai) => sum + ai * ai, 0));
+    const magnitudeB = Math.sqrt(b.reduce((sum, bi) => sum + bi * bi, 0));
+    return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
   }
 }
 ```
@@ -712,10 +713,12 @@ interface PersistenceStore {
 
 class ContextPersistenceManager {
   private store: PersistenceStore;
+  private llm: LLMClient;
   private maxEntriesPerCategory: number;
 
-  constructor(store: PersistenceStore, maxEntries: number = 1000) {
+  constructor(store: PersistenceStore, llm: LLMClient, maxEntries: number = 1000) {
     this.store = store;
+    this.llm = llm;
     this.maxEntriesPerCategory = maxEntries;
   }
 
@@ -797,19 +800,75 @@ class ContextPersistenceManager {
     return sections.join("\n\n");
   }
 
-  // --- 以下为辅助提取方法的类型签名 ---
+  // --- 辅助提取方法：通过 LLM 从对话中抽取结构化信息 ---
+
   private async extractFacts(
     conversation: Array<{ role: string; content: string }>
   ): Promise<Array<{ content: string; confidence: number; tags: string[] }>> {
-    // 实际实现中会调用 LLM 进行信息提取
-    // 此处为示意
-    return [];
+    const recentMessages = conversation.slice(-10);
+    const transcript = recentMessages
+      .map(m => `${m.role}: ${m.content}`)
+      .join("\n");
+
+    const prompt = `从以下对话中提取关键事实信息。
+
+要求：
+1. 只提取具体的、可验证的事实（如姓名、日期、数据、决策）
+2. 忽略寒暄、过渡语和主观评价
+3. 为每条事实评估置信度（0-1），信息越明确置信度越高
+4. 为每条事实标注分类标签
+
+以 JSON 数组格式返回：
+[{"content": "事实描述", "confidence": 0.9, "tags": ["标签1"]}]
+
+对话内容：
+${transcript}
+
+提取结果：`;
+
+    const response = await this.llm.complete(prompt, 1024);
+
+    try {
+      const parsed = JSON.parse(response);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return []; // JSON 解析失败时安全降级
+    }
   }
 
   private async extractPreferences(
     conversation: Array<{ role: string; content: string }>
   ): Promise<Array<{ content: string; confidence: number; tags: string[] }>> {
-    return [];
+    const recentMessages = conversation.slice(-10);
+    const transcript = recentMessages
+      .map(m => `${m.role}: ${m.content}`)
+      .join("\n");
+
+    const prompt = `从以下对话中提取用户偏好信息。
+
+要求：
+1. 关注用户的沟通风格偏好（语言、详细程度、格式）
+2. 关注用户的技术偏好（工具、框架、编程语言）
+3. 关注用户的工作习惯（时间、流程、协作方式）
+4. 为每条偏好评估置信度（0-1），显式表达的偏好置信度更高
+5. 为每条偏好标注分类标签
+
+以 JSON 数组格式返回：
+[{"content": "偏好描述", "confidence": 0.8, "tags": ["communication"]}]
+
+对话内容：
+${transcript}
+
+提取结果：`;
+
+    const response = await this.llm.complete(prompt, 1024);
+
+    try {
+      const parsed = JSON.parse(response);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return []; // JSON 解析失败时安全降级
+    }
   }
 }
 ```
@@ -932,26 +991,66 @@ class ContextHealthDashboard {
     originalEmbedding: number[],
     currentEmbedding: number[]
   ): ContextHealthMetrics {
+    // token 使用率：基于上下文长度与窗口大小的比值估算
+    const estimatedTokens = Math.ceil(context.length / 4); // 简化估算，精确版本见 estimateTokens 方法
+    const contextWindowSize = 128_000; // 常见模型窗口大小
+    const tokenUtilization = Math.min(1.0, estimatedTokens / contextWindowSize);
+
     // 信息密度：使用 unique word ratio 作为近似
-    const words = context.split(/\s+/);
+    const words = context.split(/\s+/).filter(w => w.length > 0);
     const uniqueWords = new Set(words);
     const informationDensity = uniqueWords.size / Math.max(words.length, 1);
 
+    // 冗余率：基于重复 n-gram 出现频率（比简单的 1 - uniqueRatio 更准确）
+    const redundancyRate = this.computeRedundancy(words);
+
     // 话题偏移：1 - 余弦相似度
-    const similarity = this.cosineSimilarity(
-      originalEmbedding,
-      currentEmbedding
-    );
+    const similarity = this.cosineSimilarity(originalEmbedding, currentEmbedding);
     const topicDriftDistance = 1 - similarity;
 
+    // 新鲜度：基于历史指标的变化趋势推断
+    // 如果近期指标有记录，用信息密度变化趋势作为新鲜度代理指标
+    const freshnessScore = this.estimateFreshness(informationDensity);
+
+    // 连贯性：综合话题一致性和信息密度
+    // 话题偏移小且信息密度合理 → 连贯性高
+    const coherenceScore = Math.min(1.0, similarity * 0.7 + informationDensity * 0.3);
+
     return {
-      tokenUtilization: 0, // 需外部传入上下文窗口大小
+      tokenUtilization,
       informationDensity,
-      redundancyRate: 1 - informationDensity,
-      freshnessScore: 0.5,     // 需要时间戳信息来计算
-      coherenceScore: 0.8,     // 需要更复杂的语义分析
+      redundancyRate,
+      freshnessScore,
+      coherenceScore,
       topicDriftDistance,
     };
+  }
+
+  /** 基于重复 n-gram 估算冗余率 */
+  private computeRedundancy(words: string[]): number {
+    if (words.length < 6) return 0;
+    const trigrams = new Map<string, number>();
+    let duplicateCount = 0;
+    for (let i = 0; i <= words.length - 3; i++) {
+      const key = words.slice(i, i + 3).join(" ");
+      const count = (trigrams.get(key) || 0) + 1;
+      trigrams.set(key, count);
+      if (count > 1) duplicateCount++;
+    }
+    const totalTrigrams = words.length - 2;
+    return Math.min(1.0, duplicateCount / Math.max(totalTrigrams, 1));
+  }
+
+  /** 基于历史信息密度趋势估算新鲜度 */
+  private estimateFreshness(currentDensity: number): number {
+    if (this.metricsHistory.length < 2) return 0.8; // 数据不足时给予合理默认值
+    const recent = this.metricsHistory.slice(-5);
+    const avgDensity = recent.reduce(
+      (sum, r) => sum + r.metrics.informationDensity, 0
+    ) / recent.length;
+    // 当前密度高于历史均值 → 新内容较多 → 新鲜度高
+    const delta = currentDensity - avgDensity;
+    return Math.max(0, Math.min(1.0, 0.5 + delta * 5));
   }
 
   private checkAlerts(
@@ -1008,16 +1107,13 @@ class ContextHealthDashboard {
     return scores.reduce((sum, s) => sum + s, 0) / scores.length;
   }
 
+  // cosineSimilarity 实现见第 5 章 Context Engineering 的工具函数定义
+  // 此处为简化展示，完整实现请参考 code-examples/shared/utils.ts
   private cosineSimilarity(a: number[], b: number[]): number {
-    if (a.length !== b.length || a.length === 0) return 0;
-    let dot = 0, normA = 0, normB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    const denom = Math.sqrt(normA) * Math.sqrt(normB);
-    return denom === 0 ? 0 : dot / denom;
+    const dotProduct = a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+    const magnitudeA = Math.sqrt(a.reduce((sum, ai) => sum + ai * ai, 0));
+    const magnitudeB = Math.sqrt(b.reduce((sum, bi) => sum + bi * bi, 0));
+    return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
   }
 
   private linearSlope(values: number[]): number {
@@ -2368,7 +2464,7 @@ class StructuredNotesManager {
 
     for (const note of active) {
       const line = `${note.category.toUpperCase()}: ${note.content}`;
-      const lineTokens = Math.ceil(line.length / 3); // 粗略估算
+      const lineTokens = Math.ceil(line.length / 4); // 简化估算，与全书统一使用 ~4 字符/token
       if (estimatedTokens + lineTokens > maxTokens) break;
       lines.push(line);
       estimatedTokens += lineTokens;

@@ -1451,26 +1451,13 @@ export class AdvancedSemanticCache<T> {
     return Date.now() - entry.createdAt > entry.ttlMs;
   }
 
-  /**
-   * 计算余弦相似度
-   */
+  // cosineSimilarity 实现见第 5 章 Context Engineering 的工具函数定义
+  // 此处为简化展示，完整实现请参考 code-examples/shared/utils.ts
   private cosineSimilarity(a: number[], b: number[]): number {
-    if (a.length !== b.length) return 0;
-
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-
-    const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-    if (denominator === 0) return 0;
-
-    return dotProduct / denominator;
+    const dotProduct = a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+    const magnitudeA = Math.sqrt(a.reduce((sum, ai) => sum + ai * ai, 0));
+    const magnitudeB = Math.sqrt(b.reduce((sum, bi) => sum + bi * bi, 0));
+    return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
   }
 
   /**

@@ -690,16 +690,13 @@ class TopicBoundaryDetector {
     return boundaries;
   }
 
-  /** 余弦相似度计算 */
+  // cosineSimilarity 实现见第 5 章 Context Engineering 的工具函数定义
+  // 此处为简化展示，完整实现请参考 code-examples/shared/utils.ts
   private cosineSimilarity(a: number[], b: number[]): number {
-    let dotProduct = 0, normA = 0, normB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-    return denominator === 0 ? 0 : dotProduct / denominator;
+    const dotProduct = a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+    const magnitudeA = Math.sqrt(a.reduce((sum, ai) => sum + ai * ai, 0));
+    const magnitudeB = Math.sqrt(b.reduce((sum, bi) => sum + bi * bi, 0));
+    return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
   }
 }
 ```
@@ -1132,13 +1129,13 @@ class VectorMemoryStore implements MemoryStorageBackend {
   async delete(id: string): Promise<void> { this.entries.delete(id); }
   async count(): Promise<number> { return this.entries.size; }
 
+  // cosineSimilarity 实现见第 5 章 Context Engineering 的工具函数定义
+  // 此处为简化展示，完整实现请参考 code-examples/shared/utils.ts
   private cosineSimilarity(a: number[], b: number[]): number {
-    let dot = 0, nA = 0, nB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i]; nA += a[i] ** 2; nB += b[i] ** 2;
-    }
-    const denom = Math.sqrt(nA) * Math.sqrt(nB);
-    return denom === 0 ? 0 : dot / denom;
+    const dotProduct = a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+    const magnitudeA = Math.sqrt(a.reduce((sum, ai) => sum + ai * ai, 0));
+    const magnitudeB = Math.sqrt(b.reduce((sum, bi) => sum + bi * bi, 0));
+    return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
   }
 }
 
@@ -1347,13 +1344,13 @@ class SemanticDeduplicator {
     return response.content;
   }
 
+  // cosineSimilarity 实现见第 5 章 Context Engineering 的工具函数定义
+  // 此处为简化展示，完整实现请参考 code-examples/shared/utils.ts
   private cosineSimilarity(a: number[], b: number[]): number {
-    let dot = 0, nA = 0, nB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i]; nA += a[i] ** 2; nB += b[i] ** 2;
-    }
-    const denom = Math.sqrt(nA) * Math.sqrt(nB);
-    return denom === 0 ? 0 : dot / denom;
+    const dotProduct = a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+    const magnitudeA = Math.sqrt(a.reduce((sum, ai) => sum + ai * ai, 0));
+    const magnitudeB = Math.sqrt(b.reduce((sum, bi) => sum + bi * bi, 0));
+    return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
   }
 }
 ```

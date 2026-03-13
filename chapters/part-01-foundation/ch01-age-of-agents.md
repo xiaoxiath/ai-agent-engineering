@@ -1,7 +1,7 @@
 # 第一章：Agent 的时代
 
-> "The next frontier for AI isn't just answering questions — it's taking actions."  
-> — Demis Hassabis, Google DeepMind CEO
+> "The long-term goal has always been to build general AI systems that can help us with almost anything, including acting as expert assistants."  
+> — Demis Hassabis, Google DeepMind CEO（出处：2024 年诺贝尔化学奖获奖演讲及后续媒体采访中的公开发言）
 
 ---
 
@@ -46,7 +46,7 @@
 - **Microsoft** 推出 Azure AI Agent Service
 - **开源社区**涌现 LangGraph、CrewAI、AutoGen 等框架
 
-Gartner 预测，到 2028 年，至少 15% 的日常工作决策将由 Agentic AI 自主完成，而 2024 年这一数字几乎为零。
+Gartner 预测，到 2028 年，至少 15% 的日常工作决策将由 Agentic AI 自主完成，而 2024 年这一数字几乎为零（来源：Gartner, *Predicts 2025: AI Agents*, 2024 年 10 月发布）。
 
 ---
 

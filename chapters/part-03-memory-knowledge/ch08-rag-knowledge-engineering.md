@@ -125,11 +125,15 @@ import { randomUUID } from "crypto";
 // RAGPipeline: 核心 Pipeline 实现
 // ============================================================
 
-/** Embedding 模型接口 */
-interface EmbeddingModel {
-  embed(texts: string[]): Promise<number[][]>;
+/**
+ * Embedding 服务接口 — 将文本转换为向量嵌入
+ * 与第 7 章 Memory Architecture 使用统一接口
+ * 实际生产中可对接 OpenAI Embeddings、Cohere 或本地模型
+ */
+interface EmbeddingService {
+  embed(text: string): Promise<number[]>;
+  embedBatch(texts: string[]): Promise<number[][]>;
   readonly dimensions: number;
-  readonly modelName: string;
 }
 
 /** 向量存储接口 */
@@ -231,7 +235,7 @@ class PipelineObserver {
 }
 
 class RAGPipeline {
-  private embeddingModel: EmbeddingModel;
+  private embeddingService: EmbeddingService;
   private vectorStore: VectorStore;
   private chunker: Chunker;
   private reranker?: Reranker;
@@ -239,14 +243,14 @@ class RAGPipeline {
   private observer: PipelineObserver;
 
   constructor(config: {
-    embeddingModel: EmbeddingModel;
+    embeddingService: EmbeddingService;
     vectorStore: VectorStore;
     chunker: Chunker;
     reranker?: Reranker;
     llmClient: LLMClient;
     logLevel?: LogLevel;
   }) {
-    this.embeddingModel = config.embeddingModel;
+    this.embeddingService = config.embeddingService;
     this.vectorStore = config.vectorStore;
     this.chunker = config.chunker;
     this.reranker = config.reranker;
@@ -295,7 +299,7 @@ class RAGPipeline {
           const texts = batch.map((c) => c.content);
 
           try {
-            const embeddings = await this.embeddingModel.embed(texts);
+            const embeddings = await this.embeddingService.embedBatch(texts);
             batch.forEach((chunk, idx) => {
               chunk.embedding = embeddings[idx];
             });
@@ -342,8 +346,8 @@ class RAGPipeline {
     const queryEmbedding = await this.observer.trackStage(
       "query_embedding",
       async () => {
-        const embeddings = await this.embeddingModel.embed([userQuery]);
-        return embeddings[0];
+        const embedding = await this.embeddingService.embed(userQuery);
+        return embedding;
       }
     );
 
@@ -416,7 +420,7 @@ class RAGPipeline {
 
 class RAGPipelineBuilder {
   private config: Partial<{
-    embeddingModel: EmbeddingModel;
+    embeddingService: EmbeddingService;
     vectorStore: VectorStore;
     chunker: Chunker;
     reranker: Reranker;
@@ -425,8 +429,8 @@ class RAGPipelineBuilder {
   }> = {};
 
   /** 设置 Embedding 模型 */
-  withEmbeddingModel(model: EmbeddingModel): this {
-    this.config.embeddingModel = model;
+  withEmbeddingService(model: EmbeddingService): this {
+    this.config.embeddingService = model;
     return this;
   }
 
@@ -462,8 +466,8 @@ class RAGPipelineBuilder {
 
   /** 构建 Pipeline 实例——校验必填配置 */
   build(): RAGPipeline {
-    if (!this.config.embeddingModel) {
-      throw new Error("必须设置 embeddingModel");
+    if (!this.config.embeddingService) {
+      throw new Error("必须设置 embeddingService");
     }
     if (!this.config.vectorStore) {
       throw new Error("必须设置 vectorStore");
@@ -476,7 +480,7 @@ class RAGPipelineBuilder {
     }
 
     return new RAGPipeline({
-      embeddingModel: this.config.embeddingModel,
+      embeddingService: this.config.embeddingService,
       vectorStore: this.config.vectorStore,
       chunker: this.config.chunker,
       reranker: this.config.reranker,
@@ -488,7 +492,7 @@ class RAGPipelineBuilder {
 
 // 使用示例:
 // const pipeline = new RAGPipelineBuilder()
-//   .withEmbeddingModel(openAIEmbedding)
+//   .withEmbeddingService(openAIEmbeddingService)
 //   .withVectorStore(pineconeStore)
 //   .withChunker(new RecursiveChunker({ chunkSize: 512 }))
 //   .withReranker(new CrossEncoderReranker({ crossEncoder: cohereReranker }))
@@ -640,18 +644,18 @@ class FixedSizeChunker implements Chunker {
 // ============================================================
 
 class SemanticChunker implements Chunker {
-  private embeddingModel: EmbeddingModel;
+  private embeddingService: EmbeddingService;
   private similarityThreshold: number;
   private maxChunkSize: number;
   private minChunkSize: number;
 
   constructor(config: {
-    embeddingModel: EmbeddingModel;
+    embeddingService: EmbeddingService;
     similarityThreshold?: number;
     maxChunkSize?: number;
     minChunkSize?: number;
   }) {
-    this.embeddingModel = config.embeddingModel;
+    this.embeddingService = config.embeddingService;
     this.similarityThreshold = config.similarityThreshold ?? 0.75;
     this.maxChunkSize = config.maxChunkSize ?? 2000;
     this.minChunkSize = config.minChunkSize ?? 100;
@@ -665,7 +669,7 @@ class SemanticChunker implements Chunker {
     }
 
     // 第二步：为每个句子生成 Embedding
-    const embeddings = await this.embeddingModel.embed(sentences);
+    const embeddings = await this.embeddingService.embedBatch(sentences);
 
     // 第三步：计算相邻句子的余弦相似度
     const similarities: number[] = [];
@@ -740,17 +744,13 @@ class SemanticChunker implements Chunker {
       .filter((s) => s.trim().length > 0);
   }
 
-  /** 余弦相似度 */
+  // cosineSimilarity 实现见第 5 章 Context Engineering 的工具函数定义
+  // 此处为简化展示，完整实现请参考 code-examples/shared/utils.ts
   private cosineSimilarity(a: number[], b: number[]): number {
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-10);
+    const dotProduct = a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+    const magnitudeA = Math.sqrt(a.reduce((sum, ai) => sum + ai * ai, 0));
+    const magnitudeB = Math.sqrt(b.reduce((sum, bi) => sum + bi * bi, 0));
+    return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
   }
 
   private createSingleChunk(document: Document): Chunk[] {
@@ -1256,11 +1256,11 @@ interface ExpandedQuery {
 
 class QueryExpander {
   private llm: LLMClient;
-  private embeddingModel: EmbeddingModel;
+  private embeddingService: EmbeddingService;
 
-  constructor(llm: LLMClient, embeddingModel: EmbeddingModel) {
+  constructor(llm: LLMClient, embeddingService: EmbeddingService) {
     this.llm = llm;
-    this.embeddingModel = embeddingModel;
+    this.embeddingService = embeddingService;
   }
 
   /** 综合查询扩展: 同义词扩展 + 查询分解 + HyDE */
@@ -1373,7 +1373,7 @@ interface RetrievalFilter {
 class HybridRetriever {
   private denseRetriever: DenseRetriever;
   private sparseRetriever: SparseRetriever;
-  private embeddingModel: EmbeddingModel;
+  private embeddingService: EmbeddingService;
   private denseWeight: number;
   private sparseWeight: number;
   private rrfK: number;
@@ -1381,14 +1381,14 @@ class HybridRetriever {
   constructor(config: {
     denseRetriever: DenseRetriever;
     sparseRetriever: SparseRetriever;
-    embeddingModel: EmbeddingModel;
+    embeddingService: EmbeddingService;
     denseWeight?: number;
     sparseWeight?: number;
     rrfK?: number;
   }) {
     this.denseRetriever = config.denseRetriever;
     this.sparseRetriever = config.sparseRetriever;
-    this.embeddingModel = config.embeddingModel;
+    this.embeddingService = config.embeddingService;
     this.denseWeight = config.denseWeight ?? 0.6;
     this.sparseWeight = config.sparseWeight ?? 0.4;
     this.rrfK = config.rrfK ?? 60;
@@ -1403,10 +1403,10 @@ class HybridRetriever {
     const metadataFilter = this.buildMetadataFilter(filter);
 
     // 并行执行 Dense 和 Sparse 检索
-    const queryEmbedding = await this.embeddingModel.embed([query]);
+    const queryEmbedding = await this.embeddingService.embed(query);
 
     const [denseResults, sparseResults] = await Promise.all([
-      this.denseRetriever.search(queryEmbedding[0], topK * 2, metadataFilter),
+      this.denseRetriever.search(queryEmbedding, topK * 2, metadataFilter),
       this.sparseRetriever.search(query, topK * 2, metadataFilter),
     ]);
 
@@ -1711,14 +1711,14 @@ interface KnowledgeGraph {
 
 class GraphBuilder {
   private llm: LLMClient;
-  private embeddingModel: EmbeddingModel;
+  private embeddingService: EmbeddingService;
   private entities: Map<string, GraphEntity> = new Map();
   private relations: GraphRelation[] = [];
   private communities: GraphCommunity[] = [];
 
-  constructor(llm: LLMClient, embeddingModel: EmbeddingModel) {
+  constructor(llm: LLMClient, embeddingService: EmbeddingService) {
     this.llm = llm;
-    this.embeddingModel = embeddingModel;
+    this.embeddingService = embeddingService;
   }
 
   /** 从文档块中提取实体 */
@@ -2039,7 +2039,7 @@ ${relationDescriptions}`;
       (e) => `${e.name}: ${e.description}`
     );
     if (entityTexts.length > 0) {
-      const embeddings = await this.embeddingModel.embed(entityTexts);
+      const embeddings = await this.embeddingService.embedBatch(entityTexts);
       entityList.forEach((entity, idx) => {
         entity.embedding = embeddings[idx];
       });
@@ -2048,7 +2048,7 @@ ${relationDescriptions}`;
     // 社区摘要 Embedding
     const communityTexts = this.communities.map((c) => c.summary);
     if (communityTexts.length > 0) {
-      const embeddings = await this.embeddingModel.embed(communityTexts);
+      const embeddings = await this.embeddingService.embedBatch(communityTexts);
       this.communities.forEach((community, idx) => {
         community.embedding = embeddings[idx];
       });
@@ -2106,16 +2106,16 @@ GraphRAG 提供两种检索模式：
 class GraphAugmentedRetriever {
   private graph: KnowledgeGraph;
   private vectorRetriever: HybridRetriever;
-  private embeddingModel: EmbeddingModel;
+  private embeddingService: EmbeddingService;
 
   constructor(
     graph: KnowledgeGraph,
     vectorRetriever: HybridRetriever,
-    embeddingModel: EmbeddingModel
+    embeddingService: EmbeddingService
   ) {
     this.graph = graph;
     this.vectorRetriever = vectorRetriever;
-    this.embeddingModel = embeddingModel;
+    this.embeddingService = embeddingService;
   }
 
   /** Local Search: 实体邻域检索 */
@@ -2157,7 +2157,7 @@ class GraphAugmentedRetriever {
     vectorResults: RetrievalResult[];
   }> {
     // 第一步：用查询 Embedding 匹配最相关的社区
-    const queryEmbedding = (await this.embeddingModel.embed([query]))[0];
+    const queryEmbedding = await this.embeddingService.embed(query);
 
     const communityScores = this.graph.communities
       .filter((c) => c.embedding)
@@ -2279,14 +2279,13 @@ class GraphAugmentedRetriever {
     return `### 相关实体\n${entitySection}\n\n### 实体关系\n${relationSection}`;
   }
 
+  // cosineSimilarity 实现见第 5 章 Context Engineering 的工具函数定义
+  // 此处为简化展示，完整实现请参考 code-examples/shared/utils.ts
   private cosineSimilarity(a: number[], b: number[]): number {
-    let dot = 0, normA = 0, normB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-10);
+    const dotProduct = a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+    const magnitudeA = Math.sqrt(a.reduce((sum, ai) => sum + ai * ai, 0));
+    const magnitudeB = Math.sqrt(b.reduce((sum, bi) => sum + bi * bi, 0));
+    return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
   }
 }
 ```
@@ -2358,16 +2357,16 @@ interface FailureMode {
 
 class RAGEvaluator {
   private llm: LLMClient;
-  private embeddingModel: EmbeddingModel;
+  private embeddingService: EmbeddingService;
   private pipeline: RAGPipeline;
 
   constructor(
     llm: LLMClient,
-    embeddingModel: EmbeddingModel,
+    embeddingService: EmbeddingService,
     pipeline: RAGPipeline
   ) {
     this.llm = llm;
-    this.embeddingModel = embeddingModel;
+    this.embeddingService = embeddingService;
     this.pipeline = pipeline;
   }
 
@@ -2508,7 +2507,7 @@ ${contextText.slice(0, 6000)}
 
       // 计算 Embedding 相似度
       const allTexts = [query, ...generatedQuestions];
-      const embeddings = await this.embeddingModel.embed(allTexts);
+      const embeddings = await this.embeddingService.embedBatch(allTexts);
 
       const queryEmb = embeddings[0];
       let totalSimilarity = 0;
@@ -2582,7 +2581,7 @@ ${retrievedContexts.join("\n---\n").slice(0, 6000)}`;
     groundTruthAnswer: string
   ): Promise<number> {
     // 使用 Embedding 相似度作为近似度量
-    const embeddings = await this.embeddingModel.embed([
+    const embeddings = await this.embeddingService.embedBatch([
       generatedAnswer,
       groundTruthAnswer,
     ]);
@@ -2640,14 +2639,13 @@ ${retrievedContexts.join("\n---\n").slice(0, 6000)}`;
     return modes;
   }
 
+  // cosineSimilarity 实现见第 5 章 Context Engineering 的工具函数定义
+  // 此处为简化展示，完整实现请参考 code-examples/shared/utils.ts
   private cosineSimilarity(a: number[], b: number[]): number {
-    let dot = 0, normA = 0, normB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-10);
+    const dotProduct = a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+    const magnitudeA = Math.sqrt(a.reduce((sum, ai) => sum + ai * ai, 0));
+    const magnitudeB = Math.sqrt(b.reduce((sum, bi) => sum + bi * bi, 0));
+    return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
   }
 }
 ```
@@ -2686,11 +2684,11 @@ class RAGABTester {
 
   constructor(
     llm: LLMClient,
-    embeddingModel: EmbeddingModel,
+    embeddingService: EmbeddingService,
     config: ABTestConfig
   ) {
-    this.evaluatorA = new RAGEvaluator(llm, embeddingModel, config.pipelineA);
-    this.evaluatorB = new RAGEvaluator(llm, embeddingModel, config.pipelineB);
+    this.evaluatorA = new RAGEvaluator(llm, embeddingService, config.pipelineA);
+    this.evaluatorB = new RAGEvaluator(llm, embeddingService, config.pipelineB);
   }
 
   async runTest(testCases: RAGTestCase[]): Promise<ABTestReport> {
@@ -3549,7 +3547,7 @@ class CostAwareRouter {
 // ============================================================
 
 interface RAGServiceConfig {
-  embeddingModel: EmbeddingModel;
+  embeddingService: EmbeddingService;
   vectorStore: VectorStore;
   chunker: Chunker;
   reranker: Reranker;
@@ -3568,7 +3566,7 @@ class ProductionRAGService {
 
   constructor(config: RAGServiceConfig) {
     this.pipeline = new RAGPipelineBuilder()
-      .withEmbeddingModel(config.embeddingModel)
+      .withEmbeddingService(config.embeddingService)
       .withVectorStore(config.vectorStore)
       .withChunker(config.chunker)
       .withReranker(config.reranker)
@@ -3576,7 +3574,7 @@ class ProductionRAGService {
       .withLogLevel(config.logLevel)
       .build();
 
-    this.queryExpander = new QueryExpander(config.llm, config.embeddingModel);
+    this.queryExpander = new QueryExpander(config.llm, config.embeddingService);
     this.cache = config.cache;
     this.costRouter = config.costRouter;
     this.indexingManager = new IndexingManager({

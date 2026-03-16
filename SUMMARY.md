@@ -10,7 +10,7 @@
 - [第 3 章：架构总览 — Agent 的七层模型](chapters/part-02-core-architecture/ch03-architecture-overview.md)
 - [第 4 章：状态管理 — 确定性的基石](chapters/part-02-core-architecture/ch04-state-management.md)
 - [第 5 章：Context Engineering — 上下文工程](chapters/part-02-core-architecture/ch05-context-engineering.md)
-- [第 6 章：工具系统设计 — Agent 的手和脚](chapters/part-02-core-architecture/ch06-tool-system-design.md)
+- [第 6 章：工具系统设计 — 从工具到 Skill](chapters/part-02-core-architecture/ch06-tool-system-design.md)
 
 ## 第三部分：记忆与知识
 
@@ -27,7 +27,7 @@
 
 - [第 12 章：Agent 安全威胁模型](chapters/part-05-security-trust/ch12-threat-model.md)
 - [第 13 章：Prompt 注入防御](chapters/part-05-security-trust/ch13-prompt-injection-defense.md)
-- [第 14 章：Agent 信任架构 — 最小权限与人机协作](chapters/part-05-security-trust/ch14-trust-architecture.md)
+- [第 14 章：Agent 信任架构 — 最小权限、HITL 与渐进自主](chapters/part-05-security-trust/ch14-trust-architecture.md)
 
 ## 第六部分：评估与质量
 

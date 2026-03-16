@@ -68,3 +68,4 @@
 - [附录 D：Agent 安全检查清单](appendix/appendix-d-security-checklist.md)
 - [附录 E：Agent 评测基准大全](appendix/appendix-e-benchmark-catalog.md)
 - [附录 F：推荐阅读与资源](appendix/appendix-f-recommended-reading.md)
+- [附录 G：共享类型与工具函数](appendix/appendix-g-shared-types.md)

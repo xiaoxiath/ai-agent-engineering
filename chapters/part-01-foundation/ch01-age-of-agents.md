@@ -1,4 +1,12 @@
 # 第一章：Agent 的时代
+> "预测 AI Agent 未来的最好方式，就是亲手构建它。"
+
+2024 年是 AI Agent 从实验室走向生产环境的转折年。ChatGPT 式的单轮问答已经无法满足企业需求——用户期待的不再是"帮我写一段代码"，而是"帮我完成从需求分析到部署上线的整个流程"。这意味着 AI 系统需要具备自主规划、工具使用、记忆管理和错误恢复的能力，从"对话工具"演进为"数字同事"。
+
+然而，Agent 的承诺与现实之间存在巨大鸿沟。生产环境中的 Agent 面临三个核心挑战：**可靠性不足**（LLM 的非确定性在多步推理中被放大）、**成本不可控**（一次复杂任务可能消耗数千次 API 调用）、以及**安全边界模糊**（Agent 拥有工具调用权限意味着它可能执行破坏性操作）。本书的目标正是系统性地应对这些挑战。
+
+本章将建立 AI Agent 的基本认知框架：什么是 Agent、它与传统软件的本质区别、当前的技术生态全景，以及我们为什么需要一套全新的工程方法论。
+
 
 > "The long-term goal has always been to build general AI systems that can help us with almost anything, including acting as expert assistants."  
 > — Demis Hassabis, Google DeepMind CEO（出处：2024 年诺贝尔化学奖获奖演讲及后续媒体采访中的公开发言）
@@ -173,20 +181,7 @@ class AutonomousAgent {
     // 1. 从记忆中检索相关经验
     const context = await this.memory.recall(goal);
 
-    // 2. 制定执行计划
-    const plan = await this.planner.createPlan(goal, context);
-
-    // 3. 逐步执行计划
-    for (const step of plan.steps) {
-      const result = await this.executeStep(step);
-
-      // 4. 反思执行结果
-      const reflection = await this.reflector.analyze(step, result);
-
-      if (reflection.needsReplan) {
-        // 5. 动态调整计划
-        await this.planner.revisePlan(plan, reflection);
-      }
+  // ... 完整实现见 code-examples/ 对应目录
 
       // 6. 存入记忆
       await this.memory.store({ step, result, reflection });
@@ -239,84 +234,7 @@ enum AgentCapabilityLevel {
   L4_AUTONOMOUS = 4,
   L5_NETWORK = 5,
 }
-
-interface AgentCapabilityAssessment {
-  level: AgentCapabilityLevel;
-  dimensions: {
-    reasoning: number;    // 推理能力 (1-10)
-    toolUse: number;      // 工具使用 (1-10)
-    memory: number;       // 记忆能力 (1-10)
-    planning: number;     // 规划能力 (1-10)
-    collaboration: number; // 协作能力 (1-10)
-    autonomy: number;     // 自主性 (1-10)
-  };
-  recommendations: string[];
-}
-
-class AgentCapabilityAssessor {
-  assess(agent: {
-    hasToolCalling: boolean;
-    hasMemory: boolean;
-    hasPlanning: boolean;
-    hasReflection: boolean;
-    hasMultiAgent: boolean;
-    maxIterations: number;
-    toolCount: number;
-  }): AgentCapabilityAssessment {
-    let level = AgentCapabilityLevel.L1_ROUTER;
-    const dimensions = {
-      reasoning: 2,
-      toolUse: 0,
-      memory: 0,
-      planning: 0,
-      collaboration: 0,
-      autonomy: 1,
-    };
-
-    if (agent.hasToolCalling) {
-      level = AgentCapabilityLevel.L2_TOOL_USER;
-      dimensions.toolUse = Math.min(agent.toolCount, 10);
-      dimensions.reasoning = 4;
-    }
-
-    if (agent.maxIterations > 1 && agent.hasToolCalling) {
-      level = AgentCapabilityLevel.L3_REASONER;
-      dimensions.reasoning = 6;
-      dimensions.autonomy = 4;
-    }
-
-    if (agent.hasMemory && agent.hasPlanning && agent.hasReflection) {
-      level = AgentCapabilityLevel.L4_AUTONOMOUS;
-      dimensions.memory = 7;
-      dimensions.planning = 7;
-      dimensions.reasoning = 8;
-      dimensions.autonomy = 7;
-    }
-
-    if (agent.hasMultiAgent) {
-      level = AgentCapabilityLevel.L5_NETWORK;
-      dimensions.collaboration = 8;
-      dimensions.autonomy = 9;
-    }
-
-    return {
-      level,
-      dimensions,
-      recommendations: this.generateRecommendations(level, dimensions),
-    };
-  }
-
-  private generateRecommendations(
-    level: AgentCapabilityLevel,
-    dims: AgentCapabilityAssessment['dimensions']
-  ): string[] {
-    const recs: string[] = [];
-
-    if (dims.toolUse < 5) recs.push('增加工具集成数量和多样性');
-    if (dims.memory < 5) recs.push('实现对话和长期记忆系统');
-    if (dims.planning < 5) recs.push('引入任务分解和规划能力');
-    if (dims.reasoning < 5) recs.push('增强多步推理和 Chain-of-Thought');
-    if (dims.collaboration < 5 && level >= 4) {
+  // ... 省略 76 行，完整实现见 code-examples/ 对应目录
       recs.push('考虑引入 Multi-Agent 协作');
     }
 
@@ -333,18 +251,16 @@ class AgentCapabilityAssessor {
 
 ### 1.3.1 模型能力的飞跃
 
-| 模型 | 上下文窗口 | 多模态 | 工具调用 | Agent能力 | 发布时间 |
-|------|-----------|--------|---------|----------|---------|
-| GPT-5 | 1M | ✅ 原生多模态推理（文本/图像/音频） | ✅ 并行调用+自适应推理 | ⭐⭐⭐⭐ | 2025-08 |
-| o3 | 200K | ✅ 文本/图像（视觉推理） | ✅ 并行调用+全工具访问 | ⭐⭐⭐⭐ | 2025-04 |
-| o4-mini | 200K | ✅ 文本/图像 | ✅ 并行调用 | ⭐⭐⭐ | 2025-04 |
-| Claude Opus 4 | 200K（1M beta） | ✅ 文本/图像/PDF | ✅ 并行+MCP+Computer Use+Extended Thinking | ⭐⭐⭐⭐⭐ | 2026-02 |
-| Claude Sonnet 4 | 200K（1M beta） | ✅ 文本/图像/PDF | ✅ 并行+MCP+Computer Use+Adaptive Thinking | ⭐⭐⭐⭐⭐ | 2026-02 |
-| Gemini 3 Pro | 1M | ✅ 原生多模态（文本/图像/音频/视频） | ✅ 原生调用+Deep Think | ⭐⭐⭐⭐⭐ | 2026-02 |
-| DeepSeek-V3.2 | 164K | ✅ 文本 | ✅ Thinking in Tool-Use | ⭐⭐⭐⭐ | 2025-12 |
-| DeepSeek-R1 | 128K | ✅ 文本 | ✅ 工具调用 | ⭐⭐⭐ | 2025-01 |
-| Llama 4 Scout | 10M | ✅ 原生多模态（文本/图像） | ✅ 工具调用 | ⭐⭐⭐ | 2025-04 |
-| Llama 4 Maverick | 1M | ✅ 原生多模态（文本/图像） | ✅ 工具调用 | ⭐⭐⭐⭐ | 2025-04 |
+| 能力维度 | 说明 | 代表性模型（截至撰写时） |
+|---------|------|----------------------|
+| 超长上下文窗口 | 从 4K 扩展到百万甚至千万级 tokens，支持整个代码库或长文档的完整理解 | GPT 系列、Claude 系列、Gemini 系列、Llama 4 系列 |
+| 原生多模态推理 | 文本、图像、音频、视频等多模态输入的统一理解与推理 | GPT 系列（文本/图像/音频）、Gemini 系列（文本/图像/音频/视频）、Claude 系列（文本/图像/PDF） |
+| 原生工具调用 | 模型内置函数调用能力，支持并行调用、结构化输出和标准化协议（如 MCP） | 主流闭源与开源模型均已支持 |
+| 深度推理（Chain-of-Thought） | 显式推理链、扩展思考模式，显著提升复杂任务的准确率 | OpenAI o 系列、DeepSeek-R1、Gemini Deep Think 模式等 |
+| 开源模型崛起 | MoE 架构在推理效率上实现突破，开源模型在 Agent 场景中日趋实用 | DeepSeek 系列、Llama 4 系列 |
+| Agent 专项能力 | Computer Use、自主编排、长时间自主执行等 Agent 原生能力 | Claude 系列（Computer Use + Extended Thinking）、OpenAI Codex 等 |
+
+> **注意**: 上表列出的是截至撰写时主流模型的能力维度总结，具体模型版本、发布日期和定价请参考各厂商官方文档，因为这些信息更新频繁。
 
 关键进步：
 - 上下文窗口从 4K 扩展到 10M tokens（Llama 4 Scout[[Meta Llama 4 Announcement]](https://ai.meta.com/blog/llama-4-multimodal-intelligence/)），Gemini 3 Pro 支持 1M 上下文并原生支持 Deep Think 推理模式[[Google Gemini 3 Announcement]](https://blog.google/products-and-platforms/products/gemini/gemini-3/)
@@ -454,23 +370,7 @@ interface AgenticCodingStack {
       model: 'Claude Sonnet 4';
     };
     openaiCodex: {
-      approach: 'sandboxed execution environment';
-      keyInnovation: '异步长时间任务';
-      model: 'codex-1 (o3 variant)';
-    };
-  };
-  
-  // IDE 集成 Agent
-  ideAgents: {
-    cursor: {
-      approach: 'IDE 深度集成 + 多模型路由';
-      keyInnovation: 'Agent Mode + Background Agent';
-    };
-    windsurf: {
-      approach: 'Cascade 多步编辑流';
-      keyInnovation: 'Memories 跨会话上下文';
-    };
-  };
+  // ... 完整实现见 code-examples/ 对应目录
   
   // Skill 与知识管理
   skills: {

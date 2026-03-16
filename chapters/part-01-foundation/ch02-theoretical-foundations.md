@@ -1,4 +1,20 @@
 # 第二章：理论基础 — 从经典 AI 到 LLM Agent
+任何工程实践如果缺乏理论根基，最终都会沦为试错法。AI Agent 工程也不例外。
+
+当你的 Agent 在第 47 步突然偏离正轨时，理解"POMDP 中的信念状态更新"能帮你定位问题；当你在选择 ReAct 还是 Plan-and-Execute 循环时，了解经典规划理论中 STRIPS 与 HTN 的取舍能给你决策依据；当你设计记忆系统时，认知科学中 ACT-R 的激活衰减模型能启发你的缓存淘汰策略。
+
+本章的组织逻辑是**从实用到基础**：先讲 LLM 作为推理引擎的核心能力和局限（这是大多数读者最迫切需要的知识），再引入"确定性外壳 / 概率性内核"的设计哲学（这是全书的架构基石），最后追溯经典 AI 理论作为深层基础。你不需要掌握每一个公式才能构建 Agent——但理解这些理论的工程含义，能让你在架构决策时多一份笃定。
+
+```mermaid
+graph LR
+    A[LLM 推理引擎] --> B[确定性外壳 / 概率性内核]
+    B --> C[Agent 循环模式]
+    C --> D[规划与决策理论]
+    D --> E[认知架构启示]
+    style A fill:#4CAF50,color:#fff
+    style B fill:#2196F3,color:#fff
+```
+
 
 > "LLM 不是数据库，不是搜索引擎，而是一个概率推理引擎。理解这一点是构建优秀 Agent 的前提。"
 > 
@@ -110,122 +126,7 @@ class SimpleReflexAgent implements AgentProgram {
 
   constructor(rules: Map<string, Action>) {
     this.rules = rules;
-  }
-
-  execute(percept: Percept): Action {
-    // 仅根据当前感知匹配规则
-    const key = this.interpretPercept(percept);
-    return this.rules.get(key) ?? { type: 'noop', params: {} };
-  }
-
-  private interpretPercept(p: Percept): string {
-    return String(p.data);
-  }
-}
-
-// 2. 基于模型的反射型 Agent
-class ModelBasedReflexAgent implements AgentProgram {
-  private state: AgentState;
-  private model: EnvironmentModel;
-  private rules: Map<string, Action>;
-
-  constructor(model: EnvironmentModel, rules: Map<string, Action>) {
-    this.state = { history: [], beliefs: {} };
-    this.model = model;
-    this.rules = rules;
-  }
-
-  execute(percept: Percept): Action {
-    // 更新内部状态（维护对环境的信念）
-    this.state = this.model.update(this.state, percept);
-    // 基于内部状态匹配规则
-    const key = this.interpretState(this.state);
-    return this.rules.get(key) ?? { type: 'noop', params: {} };
-  }
-
-  private interpretState(s: AgentState): string {
-    return JSON.stringify(s.beliefs);
-  }
-}
-
-// 3. 基于目标的 Agent
-class GoalBasedAgent implements AgentProgram {
-  private state: AgentState;
-  private model: EnvironmentModel;
-  private goal: Goal;
-
-  constructor(model: EnvironmentModel, goal: Goal) {
-    this.state = { history: [], beliefs: {} };
-    this.model = model;
-    this.goal = goal;
-  }
-
-  execute(percept: Percept): Action {
-    this.state = this.model.update(this.state, percept);
-
-    // 搜索能达成目标的动作序列
-    const plan = this.search(this.state, this.goal);
-    return plan[0] ?? { type: 'noop', params: {} };
-  }
-
-  private search(state: AgentState, goal: Goal): Action[] {
-    // 规划算法——在第 2.3 节详细讨论
-    return [];
-  }
-}
-
-// 4. 基于效用的 Agent
-class UtilityBasedAgent implements AgentProgram {
-  private state: AgentState;
-  private model: EnvironmentModel;
-  private utilityFn: (state: AgentState) => number;
-
-  constructor(model: EnvironmentModel, utilityFn: (s: AgentState) => number) {
-    this.state = { history: [], beliefs: {} };
-    this.model = model;
-    this.utilityFn = utilityFn;
-  }
-
-  execute(percept: Percept): Action {
-    this.state = this.model.update(this.state, percept);
-
-    // 评估每个动作的期望效用，选择最优
-    let bestAction: Action = { type: 'noop', params: {} };
-    let bestUtility = -Infinity;
-
-    for (const action of this.getAvailableActions()) {
-      const expectedState = this.model.predict(this.state, action);
-      const utility = this.utilityFn(expectedState);
-      if (utility > bestUtility) {
-        bestUtility = utility;
-        bestAction = action;
-      }
-    }
-
-    return bestAction;
-  }
-
-  private getAvailableActions(): Action[] {
-    return [];
-  }
-}
-
-// 辅助类型定义
-interface AgentState {
-  history: Percept[];
-  beliefs: Record<string, unknown>;
-}
-
-interface EnvironmentModel {
-  update(state: AgentState, percept: Percept): AgentState;
-  predict(state: AgentState, action: Action): AgentState;
-}
-
-interface Goal {
-  test(state: AgentState): boolean;
-}
-
-interface KnowledgeBase {
+  // ... 省略 114 行，完整实现见 code-examples/ 对应目录
   query(question: string): unknown;
 }
 
@@ -269,24 +170,7 @@ interface EnvironmentProperties {
   multiAgent: boolean;   // true = 多 Agent, false = 单 Agent
 }
 
-// 典型 LLM Agent 环境
-const typicalLLMAgentEnv: EnvironmentProperties = {
-  observability: 'partial',
-  determinism: 'stochastic',
-  episodic: false,       // 序贯式——历史影响未来
-  dynamic: true,         // 外部世界实时变化
-  discrete: true,        // 有限工具集
-  multiAgent: false,     // 单 Agent 为主（多 Agent 见 2.4 节）
-};
-
-// 根据环境特征选择 Agent 架构
-function recommendArchitecture(env: EnvironmentProperties): string {
-  if (env.observability === 'full' && env.determinism === 'deterministic') {
-    return '简单反射型或基于目标的 Agent 即可';
-  }
-  if (env.observability === 'partial') {
-    if (env.episodic) {
-      return '带状态追踪的 ReAct Agent';
+  // ... 完整实现见 code-examples/ 对应目录
     }
     return '带记忆和信念维护的 BDI Agent（见 2.5 节）';
   }
@@ -357,74 +241,7 @@ interface MDP<S, A> {
   transition: (state: S, action: A) => Map<S, number>;
   // 奖励函数
   reward: (state: S, action: A, nextState?: S) => number;
-  // 折扣因子
-  gamma: number;
-}
-
-// 策略：从状态到动作的映射
-type Policy<S, A> = (state: S) => A;
-
-// 值函数：每个状态的期望累积回报
-type ValueFunction<S> = Map<S, number>;
-
-// 值迭代算法（Value Iteration）
-function valueIteration<S, A>(mdp: MDP<S, A>, epsilon: number = 0.001): {
-  values: ValueFunction<S>;
-  policy: Policy<S, A>;
-} {
-  // 初始化值函数
-  const V: Map<S, number> = new Map();
-  for (const s of mdp.states) {
-    V.set(s, 0);
-  }
-
-  // 迭代直到收敛
-  let delta: number;
-  do {
-    delta = 0;
-    for (const s of mdp.states) {
-      const oldV = V.get(s) ?? 0;
-
-      // 找到使期望值最大的动作
-      let bestValue = -Infinity;
-      for (const a of mdp.actions) {
-        let expectedValue = 0;
-        const transitions = mdp.transition(s, a);
-
-        for (const [nextState, prob] of transitions) {
-          const reward = mdp.reward(s, a, nextState);
-          const futureValue = V.get(nextState) ?? 0;
-          expectedValue += prob * (reward + mdp.gamma * futureValue);
-        }
-
-        bestValue = Math.max(bestValue, expectedValue);
-      }
-
-      V.set(s, bestValue);
-      delta = Math.max(delta, Math.abs(oldV - bestValue));
-    }
-  } while (delta > epsilon);
-
-  // 从值函数中提取最优策略
-  const policy: Policy<S, A> = (state: S) => {
-    let bestAction = mdp.actions[0];
-    let bestValue = -Infinity;
-
-    for (const a of mdp.actions) {
-      let expectedValue = 0;
-      const transitions = mdp.transition(state, a);
-
-      for (const [nextState, prob] of transitions) {
-        const reward = mdp.reward(state, a, nextState);
-        const futureValue = V.get(nextState) ?? 0;
-        expectedValue += prob * (reward + mdp.gamma * futureValue);
-      }
-
-      if (expectedValue > bestValue) {
-        bestValue = expectedValue;
-        bestAction = a;
-      }
-    }
+  // ... 省略 66 行，完整实现见 code-examples/ 对应目录
 
     return bestAction;
   };
@@ -457,21 +274,7 @@ interface AgentDecisionState {
 
 type AgentDecisionAction =
   | { type: 'call_tool'; tool: string; params: Record<string, unknown> }
-  | { type: 'respond'; content: string }
-  | { type: 'ask_clarification'; question: string }
-  | { type: 'delegate'; agent: string; task: string };
-
-// Agent 的策略函数（由 LLM 隐式实现）
-async function agentPolicy(
-  state: AgentDecisionState,
-  llm: LLM,
-  tools: ToolDefinition[]
-): Promise<AgentDecisionAction> {
-  const response = await llm.chat({
-    messages: state.conversationHistory,
-    tools,
-    temperature: 0,
-  });
+  // ... 完整实现见 code-examples/ 对应目录
 
   if (response.toolCalls && response.toolCalls.length > 0) {
     const tc = response.toolCalls[0];
@@ -506,30 +309,7 @@ interface BeliefState {
     known: Record<string, unknown>;      // 确定知道的
     uncertain: Record<string, {          // 不确定的
       possibleValues: unknown[];
-      probabilities: number[];
-    }>;
-    unknown: string[];                   // 完全未知的
-  };
-
-  // 信息增益追踪
-  informationGap: string[];  // 需要通过工具调用或提问来填补的信息缺口
-}
-
-// 信念更新：贝叶斯规则
-function updateBelief(
-  currentBelief: Map<string, number>,
-  observation: string,
-  observationModel: (state: string, obs: string) => number
-): Map<string, number> {
-  const newBelief = new Map<string, number>();
-  let totalProb = 0;
-
-  for (const [state, prior] of currentBelief) {
-    const likelihood = observationModel(state, observation);
-    const posterior = prior * likelihood;
-    newBelief.set(state, posterior);
-    totalProb += posterior;
-  }
+  // ... 完整实现见 code-examples/ 对应目录
 
   // 归一化
   for (const [state, prob] of newBelief) {
@@ -568,40 +348,7 @@ interface AgentOutcome {
   taskCompleted: boolean;
   accuracy: number;          // 任务完成的准确度
   tokenCost: number;         // 消耗的 Token 数
-  latency: number;           // 耗时（毫秒）
-  userSatisfaction: number;  // 用户满意度估计
-  sideEffects: string[];     // 副作用
-}
-
-class WeightedUtilityFunction implements AgentUtility {
-  constructor(private weights: {
-    completion: number;    // 任务完成权重
-    accuracy: number;      // 准确度权重
-    costPenalty: number;   // 成本惩罚权重
-    latencyPenalty: number; // 延迟惩罚权重
-    satisfaction: number;  // 满意度权重
-  }) {}
-
-  evaluate(outcome: AgentOutcome): number {
-    let utility = 0;
-
-    if (outcome.taskCompleted) {
-      utility += this.weights.completion;
-    }
-    utility += outcome.accuracy * this.weights.accuracy;
-    utility -= outcome.tokenCost * this.weights.costPenalty;
-    utility -= outcome.latency * this.weights.latencyPenalty;
-    utility += outcome.userSatisfaction * this.weights.satisfaction;
-
-    // 副作用严重惩罚
-    utility -= outcome.sideEffects.length * 10;
-
-    return utility;
-  }
-}
-
-// 示例：不同场景下的效用权重配置
-const customerServiceWeights = {
+  // ... 完整实现见 code-examples/ 对应目录
   completion: 50, accuracy: 30, costPenalty: 0.001,
   latencyPenalty: 0.01, satisfaction: 40,
 };
@@ -633,23 +380,7 @@ async function expectedUtilityDecision(
   let bestAction = actions[0];
   let bestExpectedUtility = -Infinity;
 
-  for (const action of actions) {
-    // 预测可能的结果及其概率
-    const outcomes = await outcomePredictor.predict(state, action);
-
-    // 计算期望效用
-    let expectedUtility = 0;
-    for (const { outcome, probability } of outcomes) {
-      expectedUtility += probability * utilityFn.evaluate(outcome);
-    }
-
-    if (expectedUtility > bestExpectedUtility) {
-      bestExpectedUtility = expectedUtility;
-      bestAction = action;
-    }
-  }
-
-  return bestAction;
+  // ... 完整实现见 code-examples/ 对应目录
 }
 
 interface OutcomePredictor {
@@ -699,78 +430,7 @@ interface STRIPSState {
 interface STRIPSAction {
   name: string;
   parameters: string[];
-  preconditions: Set<string>;  // 执行该动作的前提条件
-  addEffects: Set<string>;     // 执行后添加的谓词
-  deleteEffects: Set<string>;  // 执行后删除的谓词
-}
-
-interface STRIPSProblem {
-  initialState: STRIPSState;
-  goalConditions: Set<string>;
-  actions: STRIPSAction[];
-}
-
-// 检查一个状态是否满足目标
-function isGoalSatisfied(state: STRIPSState, goal: Set<string>): boolean {
-  for (const condition of goal) {
-    if (!state.predicates.has(condition)) return false;
-  }
-  return true;
-}
-
-// 检查一个动作是否可执行
-function isApplicable(state: STRIPSState, action: STRIPSAction): boolean {
-  for (const pre of action.preconditions) {
-    if (!state.predicates.has(pre)) return false;
-  }
-  return true;
-}
-
-// 执行一个动作，返回新状态
-function applyAction(state: STRIPSState, action: STRIPSAction): STRIPSState {
-  const newPredicates = new Set(state.predicates);
-  for (const del of action.deleteEffects) {
-    newPredicates.delete(del);
-  }
-  for (const add of action.addEffects) {
-    newPredicates.add(add);
-  }
-  return { predicates: newPredicates };
-}
-
-// 前向搜索规划器（Forward State-Space Search）
-function forwardPlanner(problem: STRIPSProblem): STRIPSAction[] | null {
-  interface SearchNode {
-    state: STRIPSState;
-    plan: STRIPSAction[];
-  }
-
-  const queue: SearchNode[] = [{ state: problem.initialState, plan: [] }];
-  const visited = new Set<string>();
-  visited.add(serializeState(problem.initialState));
-
-  while (queue.length > 0) {
-    const node = queue.shift()!;
-
-    if (isGoalSatisfied(node.state, problem.goalConditions)) {
-      return node.plan;
-    }
-
-    for (const action of problem.actions) {
-      if (isApplicable(node.state, action)) {
-        const newState = applyAction(node.state, action);
-        const key = serializeState(newState);
-        if (!visited.has(key)) {
-          visited.add(key);
-          queue.push({
-            state: newState,
-            plan: [...node.plan, action],
-          });
-        }
-      }
-    }
-  }
-
+  // ... 省略 70 行，完整实现见 code-examples/ 对应目录
   return null; // 无解
 }
 
@@ -803,61 +463,7 @@ interface Task {
 }
 
 interface Method {
-  name: string;
-  // 该方法适用于哪种复合任务
-  taskName: string;
-  // 前置条件
-  preconditions: (state: STRIPSState, params: Record<string, string>) => boolean;
-  // 将复合任务分解为子任务列表
-  decompose: (params: Record<string, string>) => Task[];
-}
-
-interface HTNDomain {
-  primitiveActions: STRIPSAction[];
-  methods: Method[];
-}
-
-// HTN 规划器
-function htnPlanner(
-  domain: HTNDomain,
-  initialState: STRIPSState,
-  tasks: Task[]
-): STRIPSAction[] | null {
-  return htnPlan(domain, initialState, [...tasks]);
-}
-
-function htnPlan(
-  domain: HTNDomain,
-  state: STRIPSState,
-  tasks: Task[]
-): STRIPSAction[] | null {
-  // 基础情况：没有剩余任务
-  if (tasks.length === 0) return [];
-
-  const currentTask = tasks[0];
-  const remainingTasks = tasks.slice(1);
-
-  if (currentTask.type === 'primitive') {
-    // 原始任务：直接查找并执行对应动作
-    const action = domain.primitiveActions.find(
-      a => a.name === currentTask.name
-    );
-    if (!action || !isApplicable(state, action)) return null;
-
-    const newState = applyAction(state, action);
-    const restPlan = htnPlan(domain, newState, remainingTasks);
-    if (restPlan === null) return null;
-
-    return [action, ...restPlan];
-  } else {
-    // 复合任务：尝试用各种方法分解
-    const applicableMethods = domain.methods.filter(
-      m => m.taskName === currentTask.name &&
-           m.preconditions(state, currentTask.params)
-    );
-
-    for (const method of applicableMethods) {
-      const subtasks = method.decompose(currentTask.params);
+  // ... 完整实现见 code-examples/ 对应目录
       const allTasks = [...subtasks, ...remainingTasks];
       const plan = htnPlan(domain, state, allTasks);
       if (plan !== null) return plan;
@@ -897,75 +503,7 @@ interface ReActStep {
   observation: string; // 动作执行后的观察
 }
 
-async function reactLoop(
-  llm: LLM,
-  question: string,
-  tools: ToolDefinition[],
-  maxSteps: number = 10
-): Promise<string> {
-  const steps: ReActStep[] = [];
-  let currentContext = question;
-
-  for (let i = 0; i < maxSteps; i++) {
-    // 构造包含历史步骤的提示
-    const prompt = buildReActPrompt(question, steps, tools);
-
-    // LLM 生成 Thought + Action
-    const response = await llm.generate(prompt);
-    const parsed = parseReActResponse(response);
-
-    if (parsed.action === 'finish') {
-      return parsed.actionInput['answer'] as string;
-    }
-
-    // 执行动作并获取观察
-    const observation = await executeTool(parsed.action, parsed.actionInput);
-
-    steps.push({
-      thought: parsed.thought,
-      action: parsed.action,
-      actionInput: parsed.actionInput,
-      observation,
-    });
-  }
-
-  return '达到最大步数限制，任务未完成';
-}
-
-function buildReActPrompt(
-  question: string, steps: ReActStep[], tools: ToolDefinition[]
-): string {
-  // 构造 ReAct 格式的提示
-  return '';
-}
-
-function parseReActResponse(response: string): {
-  thought: string; action: string; actionInput: Record<string, unknown>;
-} {
-  return { thought: '', action: '', actionInput: {} };
-}
-
-async function executeTool(
-  name: string, input: Record<string, unknown>
-): Promise<string> {
-  return '';
-}
-
-interface LLM {
-  generate(prompt: string): Promise<string>;
-  chat(params: { messages: Message[]; tools?: ToolDefinition[]; temperature?: number }): Promise<any>;
-  classify(input: string, options: { categories: string[] }): Promise<string>;
-}
-
-interface Message {
-  role: 'user' | 'assistant' | 'tool' | 'system';
-  content: string;
-}
-
-interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
+  // ... 省略 67 行，完整实现见 code-examples/ 对应目录
 }
 
 interface ToolResult {
@@ -989,73 +527,7 @@ interface ExecutionPlan {
 
 interface PlanStep {
   id: string;
-  description: string;
-  tool?: string;
-  params?: Record<string, unknown>;
-  dependsOn: string[];  // 依赖的前置步骤
-}
-
-async function planAndExecute(
-  llm: LLM,
-  task: string,
-  tools: ToolDefinition[]
-): Promise<string> {
-  // 阶段一：规划
-  const plan = await generatePlan(llm, task, tools);
-
-  // 阶段二：执行
-  const results = new Map<string, unknown>();
-
-  for (const step of topologicalSort(plan.steps)) {
-    // 检查前置步骤是否完成
-    const depsReady = step.dependsOn.every(dep => results.has(dep));
-    if (!depsReady) {
-      throw new Error(`步骤 ${step.id} 的依赖未满足`);
-    }
-
-    // 执行步骤
-    try {
-      const result = await executeStep(step, results);
-      results.set(step.id, result);
-    } catch (error) {
-      // 检查是否有应急计划
-      const fallback = plan.contingencies.get(step.id);
-      if (fallback) {
-        // 执行应急计划...
-      } else {
-        // 请求 LLM 重新规划
-        const revisedPlan = await replan(llm, task, tools, results, error);
-        // 继续执行修订后的计划...
-      }
-    }
-  }
-
-  // 阶段三：综合结果
-  return await synthesizeResult(llm, task, results);
-}
-
-async function generatePlan(
-  llm: LLM, task: string, tools: ToolDefinition[]
-): Promise<ExecutionPlan> {
-  return { steps: [], contingencies: new Map() };
-}
-
-function topologicalSort(steps: PlanStep[]): PlanStep[] {
-  return steps; // 简化实现
-}
-
-async function executeStep(
-  step: PlanStep, context: Map<string, unknown>
-): Promise<unknown> {
-  return {};
-}
-
-async function replan(
-  llm: LLM, task: string, tools: ToolDefinition[],
-  results: Map<string, unknown>, error: unknown
-): Promise<ExecutionPlan> {
-  return { steps: [], contingencies: new Map() };
-}
+  // ... 省略 65 行，完整实现见 code-examples/ 对应目录
 
 async function synthesizeResult(
   llm: LLM, task: string, results: Map<string, unknown>
@@ -1079,65 +551,7 @@ interface ThoughtNode {
 }
 
 async function treeOfThoughts(
-  llm: LLM,
-  problem: string,
-  maxDepth: number = 3,
-  branchingFactor: number = 3,
-  beamWidth: number = 2
-): Promise<string> {
-  // 根节点
-  const root: ThoughtNode = {
-    thought: problem,
-    score: 0,
-    children: [],
-    parent: null,
-    depth: 0,
-  };
-
-  let currentLevel: ThoughtNode[] = [root];
-
-  for (let depth = 0; depth < maxDepth; depth++) {
-    const nextLevel: ThoughtNode[] = [];
-
-    for (const node of currentLevel) {
-      // 生成多个候选思维
-      const candidates = await generateThoughts(
-        llm, node, branchingFactor
-      );
-
-      // 评估每个候选思维
-      for (const candidate of candidates) {
-        candidate.score = await evaluateThought(llm, problem, candidate);
-        node.children.push(candidate);
-        nextLevel.push(candidate);
-      }
-    }
-
-    // Beam Search：只保留最好的 beamWidth 个节点
-    nextLevel.sort((a, b) => b.score - a.score);
-    currentLevel = nextLevel.slice(0, beamWidth);
-  }
-
-  // 选择最佳叶子节点，回溯构造完整推理链
-  const bestLeaf = currentLevel[0];
-  return reconstructReasoning(bestLeaf);
-}
-
-async function generateThoughts(
-  llm: LLM, parent: ThoughtNode, n: number
-): Promise<ThoughtNode[]> {
-  // 让 LLM 从当前思维出发生成 n 个下一步推理
-  return [];
-}
-
-async function evaluateThought(
-  llm: LLM, problem: string, node: ThoughtNode
-): Promise<number> {
-  // 让 LLM 评估该推理路径的质量（0-1）
-  return 0;
-}
-
-function reconstructReasoning(leaf: ThoughtNode): string {
+  // ... 完整实现见 code-examples/ 对应目录
   const path: string[] = [];
   let current: ThoughtNode | null = leaf;
   while (current !== null) {
@@ -1169,42 +583,7 @@ interface AdaptivePlanner {
     state: AgentDecisionState,
     completedSteps: PlanStep[],
     currentPlan: PlanStep[],
-    lastResult: unknown
-  ): Promise<PlanStep[]>;
-  // 判断是否需要重新规划
-  needsReplanning(
-    plan: PlanStep[],
-    lastResult: unknown,
-    state: AgentDecisionState
-  ): Promise<boolean>;
-}
-
-async function interleavedExecution(
-  planner: AdaptivePlanner,
-  goal: string,
-  initialState: AgentDecisionState
-): Promise<unknown> {
-  let state = initialState;
-  let plan = await planner.plan(goal, state);
-  const completedSteps: PlanStep[] = [];
-
-  while (plan.length > 0) {
-    const currentStep = plan[0];
-    const remainingPlan = plan.slice(1);
-
-    // 执行当前步骤
-    const result = await executeStep(currentStep, new Map());
-
-    completedSteps.push(currentStep);
-
-    // 判断是否需要重新规划
-    const shouldReplan = await planner.needsReplanning(
-      remainingPlan, result, state
-    );
-
-    if (shouldReplan) {
-      plan = await planner.replan(
-        goal, state, completedSteps, remainingPlan, result
+  // ... 完整实现见 code-examples/ 对应目录
       );
     } else {
       plan = remainingPlan;
@@ -1272,41 +651,7 @@ interface DelegationSpec<TInput = unknown, TOutput = unknown> {
   delegateeId: string;
   /** 子任务描述——对 delegatee 来说就是它的"goal" */
   taskSpec: {
-    description: string;
-    input: TInput;
-    constraints?: string[];        // 执行约束（如"不得调用外部 API"）
-    timeout?: number;              // 超时时间（毫秒）
-  };
-  /** 传递给 delegatee 的上下文 */
-  context: {
-    parentGoal: string;            // 上层任务目标（让 delegatee 理解大局）
-    relevantHistory: Message[];    // 相关对话历史
-    sharedMemory?: Map<string, unknown>;
-  };
-  /** 委派完成后的回调 */
-  callback: (result: DelegationResult<TOutput>) => Promise<void>;
-}
-
-interface DelegationResult<T = unknown> {
-  status: 'success' | 'failure' | 'timeout' | 'rejected';
-  output?: T;
-  error?: string;
-  tokenUsage: number;
-  durationMs: number;
-}
-
-// Handoff 的形式化定义
-interface HandoffProtocol {
-  /** 移交的唯一标识 */
-  handoffId: string;
-  /** 源 Agent */
-  sourceAgentId: string;
-  /** 目标 Agent（或人类操作员标识） */
-  targetAgentId: string;
-  /** 被移交的会话状态 */
-  sessionState: {
-    conversationHistory: Message[];
-    userContext: Record<string, unknown>;
+  // ... 完整实现见 code-examples/ 对应目录
     currentGoal: string;
     metadata: Record<string, unknown>;
   };
@@ -1355,23 +700,7 @@ interface NormalFormGame<A> {
 }
 
 // 经典案例：囚徒困境
-function prisonersDilemma(): NormalFormGame<'cooperate' | 'defect'> {
-  return {
-    players: ['agent_1', 'agent_2'],
-    strategies: new Map([
-      ['agent_1', ['cooperate', 'defect']],
-      ['agent_2', ['cooperate', 'defect']],
-    ]),
-    utility: (profile) => {
-      const a1 = profile.get('agent_1')!;
-      const a2 = profile.get('agent_2')!;
-
-      // 经典收益矩阵
-      if (a1 === 'cooperate' && a2 === 'cooperate') {
-        return new Map([['agent_1', 3], ['agent_2', 3]]);  // 双方合作
-      }
-      if (a1 === 'cooperate' && a2 === 'defect') {
-        return new Map([['agent_1', 0], ['agent_2', 5]]);  // 被背叛
+  // ... 完整实现见 code-examples/ 对应目录
       }
       if (a1 === 'defect' && a2 === 'cooperate') {
         return new Map([['agent_1', 5], ['agent_2', 0]]);  // 背叛对方
@@ -1420,37 +749,7 @@ function shapleyValue(
 
   for (const player of players) {
     let totalContribution = 0;
-
-    // 遍历所有不包含 player 的子集
-    const otherPlayers = players.filter(p => p !== player);
-    const subsets = getAllSubsets(otherPlayers);
-
-    for (const subset of subsets) {
-      const s = subset.length;
-      // 权重：|S|! × (n - |S| - 1)! / n!
-      const weight = (factorial(s) * factorial(n - s - 1)) / factorial(n);
-
-      // player 对联盟 subset 的边际贡献
-      const withPlayer = new Set([...subset, player]);
-      const withoutPlayer = new Set(subset);
-      const marginalContribution =
-        characteristicFunction(withPlayer) -
-        characteristicFunction(withoutPlayer);
-
-      totalContribution += weight * marginalContribution;
-    }
-
-    result.set(player, totalContribution);
-  }
-
-  return result;
-}
-
-function getAllSubsets(arr: string[]): string[][] {
-  const result: string[][] = [[]];
-  for (const item of arr) {
-    const newSubsets = result.map(subset => [...subset, item]);
-    result.push(...newSubsets);
+  // ... 完整实现见 code-examples/ 对应目录
   }
   return result;
 }
@@ -1488,66 +787,7 @@ type SpeechActType =
   | 'confirm'      // 宣告：确认完成
   | 'failure'      // 宣告：报告失败
   | 'query';       // 请求信息
-
-interface AgentMessage {
-  id: string;
-  sender: string;
-  receiver: string;
-  performative: SpeechActType;  // 言语行为类型
-  content: unknown;
-  replyTo?: string;              // 回复哪条消息
-  timestamp: number;
-}
-
-// Agent 通信管道
-interface CommunicationChannel {
-  send(message: AgentMessage): Promise<void>;
-  receive(agentId: string): AsyncIterable<AgentMessage>;
-  broadcast(message: Omit<AgentMessage, 'receiver'>): Promise<void>;
-}
-
-// 任务委托协议（Contract Net Protocol 的简化版）
-async function contractNetProtocol(
-  manager: string,
-  workers: string[],
-  task: string,
-  channel: CommunicationChannel
-): Promise<{ winner: string; result: unknown }> {
-  // 1. Manager 发布任务公告（Call for Proposals）
-  await channel.broadcast({
-    id: crypto.randomUUID(),
-    sender: manager,
-    performative: 'request',
-    content: { task, type: 'call_for_proposals' },
-    timestamp: Date.now(),
-  });
-
-  // 2. 收集 Worker 的提案
-  const proposals: AgentMessage[] = [];
-  for await (const msg of channel.receive(manager)) {
-    if (msg.performative === 'propose') {
-      proposals.push(msg);
-    }
-    if (proposals.length >= workers.length) break;
-  }
-
-  // 3. 评估提案并选择最佳 Worker
-  const bestProposal = proposals.sort(
-    (a, b) => (b.content as any).confidence - (a.content as any).confidence
-  )[0];
-
-  // 4. 向获胜者发送接受通知
-  await channel.send({
-    id: crypto.randomUUID(),
-    sender: manager,
-    receiver: bestProposal.sender,
-    performative: 'request',
-    content: { task, type: 'execute' },
-    timestamp: Date.now(),
-  });
-
-  // 5. 等待执行结果
-  for await (const msg of channel.receive(manager)) {
+  // ... 完整实现见 code-examples/ 对应目录
     if (msg.sender === bestProposal.sender &&
         (msg.performative === 'confirm' || msg.performative === 'failure')) {
       return { winner: bestProposal.sender, result: msg.content };
@@ -1575,79 +815,7 @@ interface ConsensusProtocol<T> {
 
 // 多数投票共识
 class MajorityVoteConsensus<T> implements ConsensusProtocol<T> {
-  private proposals: Map<string, T> = new Map();
-  private requiredVotes: number;
-
-  constructor(totalAgents: number) {
-    this.requiredVotes = Math.floor(totalAgents / 2) + 1;
-  }
-
-  propose(agentId: string, value: T): void {
-    this.proposals.set(agentId, value);
-  }
-
-  async resolve(): Promise<T> {
-    // 统计每个值的票数
-    const votes = new Map<string, { value: T; count: number }>();
-
-    for (const [, value] of this.proposals) {
-      const key = JSON.stringify(value);
-      const existing = votes.get(key);
-      if (existing) {
-        existing.count++;
-      } else {
-        votes.set(key, { value, count: 1 });
-      }
-    }
-
-    // 找到票数最多的值
-    let winner: T | null = null;
-    let maxVotes = 0;
-    for (const [, { value, count }] of votes) {
-      if (count > maxVotes) {
-        maxVotes = count;
-        winner = value;
-      }
-    }
-
-    if (winner === null || maxVotes < this.requiredVotes) {
-      throw new Error('未能达成共识');
-    }
-
-    return winner;
-  }
-}
-
-// 加权共识（基于 Agent 置信度）
-class WeightedConsensus implements ConsensusProtocol<string> {
-  private proposals: { agentId: string; value: string; confidence: number }[] = [];
-
-  propose(agentId: string, value: string): void {
-    // 此处 confidence 需通过其他方式传入，简化处理
-    this.proposals.push({ agentId, value, confidence: 1.0 });
-  }
-
-  proposeWithConfidence(
-    agentId: string, value: string, confidence: number
-  ): void {
-    this.proposals.push({ agentId, value, confidence });
-  }
-
-  async resolve(): Promise<string> {
-    // 按值分组，计算加权总分
-    const scores = new Map<string, number>();
-
-    for (const { value, confidence } of this.proposals) {
-      scores.set(value, (scores.get(value) ?? 0) + confidence);
-    }
-
-    // 选择加权分数最高的值
-    let bestValue = '';
-    let bestScore = -Infinity;
-    for (const [value, score] of scores) {
-      if (score > bestScore) {
-        bestScore = score;
-        bestValue = value;
+  // ... 省略 71 行，完整实现见 code-examples/ 对应目录
       }
     }
 
@@ -1685,138 +853,7 @@ interface Belief {
   source: string;      // 信念的来源
   timestamp: number;
 }
-
-interface Desire {
-  id: string;
-  description: string;
-  priority: number;         // 优先级
-  achievementCondition: (beliefs: Belief[]) => boolean;  // 达成条件
-  incompatibleWith?: string[];  // 与哪些愿望冲突
-}
-
-interface Intention {
-  desireId: string;
-  plan: PlanStep[];
-  currentStep: number;
-  status: 'active' | 'suspended' | 'completed' | 'failed';
-  commitmentLevel: 'blind' | 'single-minded' | 'open-minded';
-}
-
-class BDIAgent {
-  private beliefs: Map<string, Belief> = new Map();
-  private desires: Desire[] = [];
-  private intentions: Intention[] = [];
-
-  // BDI 推理循环
-  async reasoningCycle(): Promise<void> {
-    // 1. 信念修正（Belief Revision）
-    await this.updateBeliefs();
-
-    // 2. 愿望生成（Desire Generation / Option Generation）
-    this.generateOptions();
-
-    // 3. 慎思（Deliberation）：从愿望中选择意图
-    this.deliberate();
-
-    // 4. 手段-目的推理（Means-Ends Reasoning）：为意图制定计划
-    await this.planIntentions();
-
-    // 5. 执行（Execution）：执行当前意图的下一步
-    await this.executeIntentions();
-  }
-
-  private async updateBeliefs(): Promise<void> {
-    // 从环境感知中更新信念
-    // 可能涉及：传感器数据、工具调用结果、其他 Agent 的消息
-  }
-
-  private generateOptions(): void {
-    // 基于当前信念生成新的愿望
-    // 也会移除不再相关的愿望
-  }
-
-  private deliberate(): void {
-    // 选择要承诺的意图
-    // 考虑：优先级、资源约束、愿望之间的兼容性
-
-    // 检查现有意图是否仍然有效
-    this.intentions = this.intentions.filter(intention => {
-      const desire = this.desires.find(d => d.id === intention.desireId);
-      if (!desire) return false;
-
-      switch (intention.commitmentLevel) {
-        case 'blind':
-          // 盲目承诺：无论如何都继续
-          return true;
-        case 'single-minded':
-          // 专注承诺：只要目标仍可能达成就继续
-          return !desire.achievementCondition([...this.beliefs.values()]);
-        case 'open-minded':
-          // 开放承诺：定期重新评估
-          return this.isStillWorthPursuing(intention);
-      }
-    });
-
-    // 从未被采纳的愿望中选择新的意图
-    for (const desire of this.desires) {
-      const alreadyIntended = this.intentions.some(
-        i => i.desireId === desire.id
-      );
-      if (alreadyIntended) continue;
-
-      // 检查资源约束和兼容性
-      if (this.canAdopt(desire)) {
-        this.intentions.push({
-          desireId: desire.id,
-          plan: [],
-          currentStep: 0,
-          status: 'active',
-          commitmentLevel: 'single-minded',
-        });
-      }
-    }
-  }
-
-  private isStillWorthPursuing(intention: Intention): boolean {
-    // 评估继续执行该意图的价值是否超过成本
-    return true;
-  }
-
-  private canAdopt(desire: Desire): boolean {
-    // 检查是否与现有意图冲突
-    for (const intention of this.intentions) {
-      const existingDesire = this.desires.find(
-        d => d.id === intention.desireId
-      );
-      if (existingDesire?.incompatibleWith?.includes(desire.id)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private async planIntentions(): Promise<void> {
-    for (const intention of this.intentions) {
-      if (intention.plan.length === 0 || intention.status === 'active') {
-        // 为意图生成或修订计划
-        // 在 LLM Agent 中，这一步由 LLM 完成
-      }
-    }
-  }
-
-  private async executeIntentions(): Promise<void> {
-    for (const intention of this.intentions) {
-      if (intention.status !== 'active') continue;
-
-      const step = intention.plan[intention.currentStep];
-      if (!step) {
-        intention.status = 'completed';
-        continue;
-      }
-
-      try {
-        await executeStep(step, new Map());
-        intention.currentStep++;
+  // ... 省略 130 行，完整实现见 code-examples/ 对应目录
       } catch {
         intention.status = 'failed';
       }
@@ -1856,58 +893,7 @@ interface MemoryChunk {
 
 class ACTRMemory {
   private chunks: Map<string, MemoryChunk> = new Map();
-  private decayRate: number = 0.5;  // 记忆衰减率
-
-  // 计算基础激活水平
-  private baseLevelActivation(chunk: MemoryChunk, now: number): number {
-    // B_i = ln(Σ_j t_j^(-d))
-    // t_j 是自第 j 次访问以来的时间，d 是衰减率
-    let sum = 0;
-    for (const accessTime of chunk.accessHistory) {
-      const timeSince = (now - accessTime) / 1000; // 秒
-      if (timeSince > 0) {
-        sum += Math.pow(timeSince, -this.decayRate);
-      }
-    }
-    return sum > 0 ? Math.log(sum) : -Infinity;
-  }
-
-  // 检索最相关的记忆块
-  retrieve(
-    cue: Record<string, unknown>,
-    associationStrengths: Map<string, Map<string, number>>,
-    threshold: number = 0
-  ): MemoryChunk | null {
-    const now = Date.now();
-    let bestChunk: MemoryChunk | null = null;
-    let bestActivation = -Infinity;
-
-    for (const [id, chunk] of this.chunks) {
-      // 基础激活
-      let activation = this.baseLevelActivation(chunk, now);
-
-      // 关联激活（spreading activation）
-      for (const [cueKey] of Object.entries(cue)) {
-        const strengths = associationStrengths.get(cueKey);
-        if (strengths?.has(id)) {
-          activation += strengths.get(id)!;
-        }
-      }
-
-      // 添加噪声（模拟人类记忆的随机性）
-      activation += this.logisticNoise(0.25);
-
-      if (activation > bestActivation && activation > threshold) {
-        bestActivation = activation;
-        bestChunk = chunk;
-      }
-    }
-
-    // 记录访问
-    if (bestChunk) {
-      bestChunk.accessHistory.push(now);
-    }
-
+  // ... 完整实现见 code-examples/ 对应目录
     return bestChunk;
   }
 
@@ -1939,88 +925,7 @@ interface SOARState {
 
 interface Operator {
   name: string;
-  preconditions: (state: SOARState) => boolean;
-  apply: (state: SOARState) => SOARState;
-  preference: number;  // 偏好值，用于选择
-}
-
-interface LearnedRule {
-  condition: (state: SOARState) => boolean;
-  production: (state: SOARState) => Operator;
-}
-
-class SOARAgent {
-  private workingMemory: SOARState;
-  private learnedRules: LearnedRule[] = [];
-
-  constructor(initialState: SOARState) {
-    this.workingMemory = initialState;
-  }
-
-  // SOAR 决策周期
-  async decisionCycle(): Promise<void> {
-    // 1. 输入阶段：感知并更新工作记忆
-    await this.inputPhase();
-
-    // 2. 提议阶段：提出候选操作符
-    const candidates = this.proposePhase();
-
-    // 3. 决策阶段：选择一个操作符
-    const selected = this.decisionPhase(candidates);
-
-    if (selected === null) {
-      // 困境（Impasse）！无法选择操作符
-      await this.handleImpasse(candidates);
-      return;
-    }
-
-    // 4. 应用阶段：执行选定的操作符
-    this.workingMemory = selected.apply(this.workingMemory);
-  }
-
-  private async inputPhase(): Promise<void> {
-    // 从环境中感知并更新工作记忆
-  }
-
-  private proposePhase(): Operator[] {
-    // 首先检查已学习的规则
-    for (const rule of this.learnedRules) {
-      if (rule.condition(this.workingMemory)) {
-        return [rule.production(this.workingMemory)];
-      }
-    }
-
-    // 返回所有满足前置条件的操作符
-    return this.workingMemory.operators.filter(
-      op => op.preconditions(this.workingMemory)
-    );
-  }
-
-  private decisionPhase(candidates: Operator[]): Operator | null {
-    if (candidates.length === 0) return null;
-    if (candidates.length === 1) return candidates[0];
-
-    // 根据偏好值选择
-    candidates.sort((a, b) => b.preference - a.preference);
-
-    // 如果最高偏好不明显优于第二高，触发困境
-    if (candidates.length > 1 &&
-        candidates[0].preference - candidates[1].preference < 0.1) {
-      return null; // 困境
-    }
-
-    return candidates[0];
-  }
-
-  private async handleImpasse(candidates: Operator[]): Promise<void> {
-    // 创建子目标来解决困境
-    // 在 LLM Agent 中：请求 LLM 深入分析来做出选择
-
-    // 解决困境后，学习新规则（chunking）
-    const resolvedOperator = candidates[0]; // 简化
-    this.learnedRules.push({
-      condition: (state) => {
-        // 学习到的条件
+  // ... 省略 80 行，完整实现见 code-examples/ 对应目录
         return true;
       },
       production: () => resolvedOperator,
@@ -2083,73 +988,7 @@ interface ModelCapabilityProfile {
   // 各项能力评分（0-100）
   capabilities: {
     basicCompletion: number;      // 基础补全
-    instructionFollowing: number; // 指令遵循
-    fewShotLearning: number;     // 少样本学习
-    chainOfThought: number;      // 思维链推理
-    toolUse: number;             // 工具使用
-    complexPlanning: number;     // 复杂规划
-    selfCorrection: number;     // 自我纠错
-    multiStepReasoning: number;  // 多步推理
-  };
-}
-
-// 不同规模模型的能力对比（概念性示例）
-const capabilityProfiles: ModelCapabilityProfile[] = [
-  {
-    model: 'small (~7B)',
-    parameterCount: '7B',
-    capabilities: {
-      basicCompletion: 85,
-      instructionFollowing: 70,
-      fewShotLearning: 60,
-      chainOfThought: 40,
-      toolUse: 30,
-      complexPlanning: 15,
-      selfCorrection: 10,
-      multiStepReasoning: 20,
-    },
-  },
-  {
-    model: 'medium (~70B)',
-    parameterCount: '70B',
-    capabilities: {
-      basicCompletion: 95,
-      instructionFollowing: 90,
-      fewShotLearning: 85,
-      chainOfThought: 75,
-      toolUse: 70,
-      complexPlanning: 55,
-      selfCorrection: 45,
-      multiStepReasoning: 60,
-    },
-  },
-  {
-    model: 'frontier (>200B)',
-    parameterCount: '>200B',
-    capabilities: {
-      basicCompletion: 98,
-      instructionFollowing: 97,
-      fewShotLearning: 95,
-      chainOfThought: 92,
-      toolUse: 90,
-      complexPlanning: 80,
-      selfCorrection: 75,
-      multiStepReasoning: 85,
-    },
-  },
-];
-
-// 根据模型能力选择 Agent 架构
-function selectAgentArchitecture(
-  profile: ModelCapabilityProfile
-): string {
-  const caps = profile.capabilities;
-
-  if (caps.complexPlanning >= 75 && caps.toolUse >= 85) {
-    return 'Full autonomous agent (ReAct / Plan-and-Execute)';
-  }
-  if (caps.toolUse >= 60 && caps.chainOfThought >= 60) {
-    return 'Tool-augmented agent with guardrails';
+  // ... 省略 65 行，完整实现见 code-examples/ 对应目录
   }
   if (caps.instructionFollowing >= 80) {
     return 'Structured workflow with LLM as decision point';
@@ -2191,30 +1030,7 @@ interface ICLStrategy {
   format: 'input-output' | 'step-by-step' | 'explanation-first';
 }
 
-// 根据任务类型选择 ICL 策略
-function selectICLStrategy(
-  taskType: string,
-  contextBudget: number
-): ICLStrategy {
-  switch (taskType) {
-    case 'classification':
-      return {
-        exampleSelection: 'diverse',  // 每个类别至少一个示例
-        numExamples: Math.min(8, Math.floor(contextBudget / 200)),
-        format: 'input-output',
-      };
-    case 'reasoning':
-      return {
-        exampleSelection: 'similar',  // 选择相似问题
-        numExamples: Math.min(3, Math.floor(contextBudget / 500)),
-        format: 'step-by-step',       // 展示推理过程
-      };
-    case 'tool-use':
-      return {
-        exampleSelection: 'curriculum', // 从简单到复杂
-        numExamples: Math.min(5, Math.floor(contextBudget / 300)),
-        format: 'step-by-step',
-      };
+  // ... 完整实现见 code-examples/ 对应目录
     default:
       return {
         exampleSelection: 'similar',
@@ -2248,47 +1064,7 @@ type CoTMode =
 interface CoTConfig {
   mode: CoTMode;
   // Self-consistency 参数
-  numSamples?: number;
-  temperature?: number;
-  // 结构化 CoT 的框架
-  framework?: string[];
-}
-
-// Self-Consistency 实现
-async function selfConsistencyCoT(
-  llm: LLM,
-  question: string,
-  config: { numSamples: number; temperature: number }
-): Promise<{ answer: string; confidence: number }> {
-  const answers: string[] = [];
-
-  // 采样多条推理路径
-  for (let i = 0; i < config.numSamples; i++) {
-    const response = await llm.generate(
-      `让我们一步步思考这个问题：\n${question}\n\n推理过程：`
-    );
-    const answer = extractFinalAnswer(response);
-    answers.push(answer);
-  }
-
-  // 投票选择最一致的答案
-  const counts = new Map<string, number>();
-  for (const ans of answers) {
-    counts.set(ans, (counts.get(ans) ?? 0) + 1);
-  }
-
-  let bestAnswer = '';
-  let bestCount = 0;
-  for (const [ans, count] of counts) {
-    if (count > bestCount) {
-      bestCount = count;
-      bestAnswer = ans;
-    }
-  }
-
-  return {
-    answer: bestAnswer,
-    confidence: bestCount / config.numSamples,
+  // ... 完整实现见 code-examples/ 对应目录
   };
 }
 
@@ -2330,48 +1106,7 @@ interface LLMCapabilityGuardrails {
 
   // 忠实推理问题的应对
   faithfulnessCheck: {
-    strategy: 'self-consistency' | 'cross-model-verification' | 'tool-validation';
-    minConsistency: number;
-  };
-
-  // 幻觉问题的应对
-  hallucinationMitigation: {
-    strategy: 'rag-grounding' | 'tool-verification' | 'citation-required';
-    factCheckTools: string[];
-  };
-
-  // 上下文利用的优化
-  contextOptimization: {
-    strategy: 'recency-prioritized' | 'relevance-sorted' | 'hierarchical-summary';
-    maxContextLength: number;
-    importantInfoPlacement: 'start' | 'end' | 'both-ends';
-  };
-}
-
-// 根据任务风险等级配置 Guardrails
-function configureGuardrails(
-  riskLevel: 'low' | 'medium' | 'high' | 'critical'
-): LLMCapabilityGuardrails {
-  switch (riskLevel) {
-    case 'low':
-      return {
-        computeDepthLimit: { strategy: 'enable-cot', maxReasoningSteps: 5 },
-        faithfulnessCheck: { strategy: 'self-consistency', minConsistency: 0.5 },
-        hallucinationMitigation: { strategy: 'rag-grounding', factCheckTools: [] },
-        contextOptimization: {
-          strategy: 'recency-prioritized', maxContextLength: 8000,
-          importantInfoPlacement: 'end',
-        },
-      };
-    case 'critical':
-      return {
-        computeDepthLimit: { strategy: 'use-external-solver', maxReasoningSteps: 20 },
-        faithfulnessCheck: { strategy: 'cross-model-verification', minConsistency: 0.9 },
-        hallucinationMitigation: {
-          strategy: 'citation-required',
-          factCheckTools: ['web_search', 'database_lookup', 'human_review'],
-        },
-        contextOptimization: {
+  // ... 完整实现见 code-examples/ 对应目录
           strategy: 'hierarchical-summary', maxContextLength: 16000,
           importantInfoPlacement: 'both-ends',
         },
@@ -2406,75 +1141,7 @@ class DeterministicShell {
 
   async processAction(action: AgentAction): Promise<ActionResult> {
     // 1. 验证 action 合法性（确定性）
-    const validation = this.guardrails.validate(action);
-    if (!validation.passed) {
-      return { success: false, error: validation.reason };
-    }
-
-    // 2. 执行工具调用（确定性）
-    const result = await this.tools.execute(action.tool, action.params);
-
-    // 3. 更新状态（确定性，使用 reducer 模式）
-    this.state = agentReducer(this.state, {
-      type: 'TOOL_RESULT',
-      payload: result
-    });
-
-    return { success: true, data: result };
-  }
-
-  constructor(tools: ToolRegistry, guardrails: GuardrailSystem) {
-    this.state = { history: [], beliefs: {} };
-    this.tools = tools;
-    this.guardrails = guardrails;
-  }
-}
-
-// 概率性内核：LLM 推理决策
-class ProbabilisticCore {
-  private llm: LLM;
-
-  constructor(llm: LLM) {
-    this.llm = llm;
-  }
-
-  async decide(context: AgentContext): Promise<AgentAction> {
-    const response = await this.llm.chat({
-      messages: context.messages,
-      tools: context.availableTools,
-      temperature: 0, // 降低随机性，但不能完全消除
-    });
-    return this.parseAction(response);
-  }
-
-  private parseAction(response: any): AgentAction {
-    return { type: 'respond', tool: '', params: {} };
-  }
-}
-
-// 类型定义
-interface AgentAction {
-  type: string;
-  tool: string;
-  params: Record<string, unknown>;
-}
-
-interface ActionResult {
-  success: boolean;
-  data?: unknown;
-  error?: string;
-}
-
-interface AgentContext {
-  messages: Message[];
-  availableTools: ToolDefinition[];
-}
-
-interface ToolRegistry {
-  execute(tool: string, params: Record<string, unknown>): Promise<unknown>;
-}
-
-interface GuardrailSystem {
+  // ... 省略 67 行，完整实现见 code-examples/ 对应目录
   validate(action: AgentAction): { passed: boolean; reason?: string };
 }
 
@@ -2498,45 +1165,7 @@ class TokenEconomicsAnalyzer {
     'claude-haiku-3.5':  { input: 0.80, output: 4.00 },
     'gemini-3-pro':      { input: 1.25, output: 5.00 },
     'gemini-3-flash':    { input: 0.075, output: 0.30 },
-    'glm-5':             { input: 0, output: 0 },       // 开源（自部署）
-    'o3-mini':           { input: 1.10, output: 4.40 },
-    'deepseek-r1':       { input: 0.55, output: 2.19 },
-  };
-
-  estimateAgentCost(params: {
-    model: string;
-    avgInputTokens: number;
-    avgOutputTokens: number;
-    avgIterations: number;
-    dailyTasks: number;
-  }): { perTask: number; daily: number; monthly: number } {
-    const price = this.pricing[params.model];
-    const perIteration =
-      (params.avgInputTokens * price.input +
-        params.avgOutputTokens * price.output) / 1_000_000;
-    const perTask = perIteration * params.avgIterations;
-    const daily = perTask * params.dailyTasks;
-    return { perTask, daily, monthly: daily * 30 };
-  }
-}
-
-// 迭代式 Agent 的成本增长特征
-// 注意：每次迭代中上下文长度会增长，导致成本加速增长
-function estimateIterativeCost(
-  baseInputTokens: number,
-  outputTokensPerIteration: number,
-  iterations: number,
-  inputPricePerMillion: number,
-  outputPricePerMillion: number
-): number {
-  let totalCost = 0;
-  let currentInputTokens = baseInputTokens;
-
-  for (let i = 0; i < iterations; i++) {
-    // 每次迭代的输入 = 基础上下文 + 之前所有迭代的输出
-    const iterationCost =
-      (currentInputTokens * inputPricePerMillion +
-        outputTokensPerIteration * outputPricePerMillion) / 1_000_000;
+  // ... 完整实现见 code-examples/ 对应目录
     totalCost += iterationCost;
 
     // 下次迭代的输入会增长（累积之前的工具调用和回复）
@@ -2570,41 +1199,7 @@ class CognitiveAgent {
   }
 
   async process(input: string): Promise<string> {
-    // 先用 System 1 快速评估复杂度
-    const complexity = await this.fastModel.classify(input, {
-      categories: ['simple', 'moderate', 'complex']
-    });
-
-    switch (complexity) {
-      case 'simple':
-        // System 1 直接回答
-        return this.fastModel.generate(input);
-
-      case 'moderate':
-        // System 1 + 工具调用
-        return this.reactLoop(this.fastModel, input, 3);
-
-      case 'complex':
-        // System 2 深度推理
-        return this.reactLoop(this.slowModel, input, 10);
-    }
-
-    return this.reactLoop(this.fastModel, input, 3);
-  }
-
-  private async reactLoop(
-    model: LLM, input: string, maxIter: number
-  ): Promise<string> {
-    const messages: Message[] = [{ role: 'user', content: input }];
-    for (let i = 0; i < maxIter; i++) {
-      const resp = await model.chat({ messages, tools: this.tools });
-      if (resp.finishReason === 'stop') return resp.content;
-      for (const tc of resp.toolCalls ?? []) {
-        const result = await this.executeTool(tc);
-        messages.push({ role: 'tool', content: JSON.stringify(result) });
-      }
-    }
-    return '任务未在限定步数内完成';
+  // ... 完整实现见 code-examples/ 对应目录
   }
 
   private async executeTool(toolCall: any): Promise<any> {
@@ -2660,95 +1255,7 @@ interface ContextEngineer {
     conversationHistory: Message[];
     availableTools: ToolDefinition[];
     memoryStore: MemoryStore;
-    knowledgeBase: KnowledgeBase;
-    tokenBudget: number;
-  }): Promise<Message[]>;
-}
-
-interface MemoryStore {
-  retrieve(query: string, limit: number): Promise<MemoryItem[]>;
-}
-
-interface MemoryItem {
-  content: string;
-  relevance: number;
-  recency: number;
-}
-
-// 优先级驱动的上下文组装器
-class PriorityContextAssembler implements ContextEngineer {
-  async assembleContext(params: {
-    task: string;
-    conversationHistory: Message[];
-    availableTools: ToolDefinition[];
-    memoryStore: MemoryStore;
-    knowledgeBase: KnowledgeBase;
-    tokenBudget: number;
-  }): Promise<Message[]> {
-    let remainingBudget = params.tokenBudget;
-    const result: Message[] = [];
-
-    // 1. System Prompt（最高优先级，固定开销）
-    const systemPrompt = this.buildSystemPrompt(params.task);
-    remainingBudget -= this.estimateTokens(systemPrompt);
-    result.push({ role: 'system', content: systemPrompt });
-
-    // 2. 最近的对话轮次（高优先级）
-    const recentHistory = this.trimHistory(
-      params.conversationHistory,
-      Math.floor(remainingBudget * 0.4)
-    );
-    remainingBudget -= this.estimateTokens(recentHistory.map(m => m.content).join(''));
-    result.push(...recentHistory);
-
-    // 3. 相关记忆（中优先级）
-    const memories = await params.memoryStore.retrieve(
-      params.task,
-      5
-    );
-    const memoryContent = this.formatMemories(memories);
-    remainingBudget -= this.estimateTokens(memoryContent);
-    if (remainingBudget > 0) {
-      result.splice(1, 0, { role: 'system', content: memoryContent });
-    }
-
-    // 4. RAG 知识（按需）
-    if (remainingBudget > 500) {
-      const knowledge = params.knowledgeBase.query(params.task);
-      const knowledgeStr = String(knowledge);
-      if (this.estimateTokens(knowledgeStr) <= remainingBudget) {
-        result.splice(1, 0, {
-          role: 'system',
-          content: `<knowledge>\n${knowledgeStr}\n</knowledge>`,
-        });
-      }
-    }
-
-    return result;
-  }
-
-  private buildSystemPrompt(task: string): string {
-    return `你是一个专业的 AI 助手。当前任务：${task}`;
-  }
-
-  private trimHistory(history: Message[], tokenBudget: number): Message[] {
-    // 从最新到最旧选择，直到超出预算
-    const result: Message[] = [];
-    let used = 0;
-    for (let i = history.length - 1; i >= 0; i--) {
-      const tokens = this.estimateTokens(history[i].content);
-      if (used + tokens > tokenBudget) break;
-      result.unshift(history[i]);
-      used += tokens;
-    }
-    return result;
-  }
-
-  private formatMemories(memories: MemoryItem[]): string {
-    if (memories.length === 0) return '';
-    const lines = memories.map(m => `- ${m.content}`).join('\n');
-    return `<relevant_memories>\n${lines}\n</relevant_memories>`;
-  }
+  // ... 省略 87 行，完整实现见 code-examples/ 对应目录
 
   private estimateTokens(text: string): number {
     // 粗略估计：英文约 4 字符/token，中文约 1.5 字符/token
@@ -2795,32 +1302,7 @@ interface ReasoningModelOutput {
     /** 推理内容（可能对用户隐藏） */
     content: string;
     /** 推理消耗的 token 数 */
-    thinkingTokens: number;
-  };
-  /** 最终回答 */
-  answer: {
-    content: string;
-    outputTokens: number;
-  };
-  /** 总 token 消耗 = input + thinking + output */
-  totalTokens: number;
-}
-
-/**
- * 推理预算控制
- * Agent 系统需要根据任务复杂度动态调整推理预算
- */
-interface ReasoningBudget {
-  /** 最大 thinking tokens 数（控制推理深度） */
-  maxThinkingTokens: number;
-  /** 推理策略 */
-  strategy: 'low' | 'medium' | 'high';
-}
-
-function selectReasoningBudget(taskComplexity: number): ReasoningBudget {
-  if (taskComplexity < 0.3) {
-    // 简单任务：快速回答，少量推理
-    return { maxThinkingTokens: 1024, strategy: 'low' };
+  // ... 完整实现见 code-examples/ 对应目录
   } else if (taskComplexity < 0.7) {
     // 中等任务：适度推理
     return { maxThinkingTokens: 8192, strategy: 'medium' };
@@ -2887,23 +1369,7 @@ interface DistilledModelSpec {
   reasoningQuality: 'high' | 'medium' | 'moderate';
   memoryRequirement: string;
   useCase: string;
-}
-
-const DEEPSEEK_R1_VARIANTS: DistilledModelSpec[] = [
-  {
-    name: 'DeepSeek-R1-Distill-Llama-70B',
-    parameterSize: '70B',
-    reasoningQuality: 'high',
-    memoryRequirement: '~140GB (FP16)',
-    useCase: '高质量推理，多 GPU 服务器部署',
-  },
-  {
-    name: 'DeepSeek-R1-Distill-Qwen-14B',
-    parameterSize: '14B',
-    reasoningQuality: 'medium',
-    memoryRequirement: '~28GB (FP16)',
-    useCase: '单 GPU 部署，平衡推理质量与成本',
-  },
+  // ... 完整实现见 code-examples/ 对应目录
   {
     name: 'DeepSeek-R1-Distill-Qwen-1.5B',
     parameterSize: '1.5B',

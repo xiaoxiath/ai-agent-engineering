@@ -10,6 +10,27 @@
 
 ## 25.1 项目概述
 
+
+```mermaid
+flowchart TB
+    subgraph 数据分析 Agent 架构
+        A[用户自然语言查询] --> B[意图解析<br/>查询/可视化/预测]
+        B --> C[Schema 理解<br/>表结构 + 字段语义]
+        C --> D[SQL/代码生成<br/>Text-to-SQL]
+        D --> E[安全校验<br/>只读 + 行级权限]
+        E --> F[执行引擎<br/>沙箱化执行]
+        F --> G[结果解读<br/>自然语言摘要]
+        G --> H[可视化建议<br/>图表类型推荐]
+    end
+    subgraph 安全边界
+        E --> I[禁止 DROP/DELETE/UPDATE]
+        E --> J[查询超时: 30s]
+        E --> K[结果行数限制: 10K]
+    end
+```
+**图 25-1 数据分析 Agent 系统架构**——数据分析 Agent 的核心是 Text-to-SQL，但真正的难点在于 Schema 理解和安全控制。一个能生成正确 SQL 但缺少权限控制的 Agent，是比没有 Agent 更危险的存在。
+
+
 数据分析 Agent 让非技术用户能够通过自然语言查询和分析数据。它需要理解用户意图、生成正确的查询语句、执行分析并以直观的方式呈现结果。
 
 ### 25.1.1 核心能力
@@ -19,15 +40,35 @@
     ↓
 ┌─────────────────────────────┐
 │  1. 意图解析                │ → 同比/环比计算
-│  2. 时间范围推断             │ → 上个月 = 2024-12
-│  3. SQL 生成                │ → 生成2条查询
-│  4. 结果计算                │ → 同比+18%, 环比-5%
-│  5. 可视化推荐              │ → 柱状对比图
+    // ... 完整实现见 code-examples/ 目录 ...
 │  6. 洞察总结                │ → 自然语言解释
 └─────────────────────────────┘
 ```
 
 ## 25.2 Text-to-SQL 引擎
+
+
+### 生产环境中的 Text-to-SQL 经验
+
+**经验 1：Few-shot 示例的选择比数量更重要**
+盲目增加 few-shot 示例数量不仅浪费 token，还可能引入噪声。有效的做法是：维护一个按查询模式分类的示例库（聚合查询、连接查询、子查询、窗口函数等），根据用户查询动态检索最相关的 3-5 个示例。
+
+**经验 2：Schema 剪枝是性能关键**
+一个包含 200 张表的数据库，全量 Schema 可能超过 50K tokens。必须实现智能 Schema 剪枝：（1）根据查询关键词匹配相关表；（2）根据外键关系自动包含关联表；（3）只保留被选中表的列信息。剪枝后的 Schema 通常不超过 3K tokens。
+
+**经验 3：错误修复循环是必须的**
+即使是最优秀的模型，Text-to-SQL 的首次成功率也很难超过 85%。引入"生成→执行→错误分析→重试"的自动修复循环，可以将端到端成功率提升到 95% 以上。关键是将 SQL 执行错误信息（如"列 xyz 不存在"）反馈给 LLM，让它自行修正。
+
+
+
+### 数据分析 Agent 的核心挑战
+
+**挑战 1：Schema 理解的"最后一公里"**
+即使将完整的数据库 Schema 传给 LLM，它仍然难以理解业务语义。例如，字段名 `cr_dt` 是 "创建日期"还是"信用日期"？列 `status` 的值 `1/2/3` 分别代表什么含义？解决方案是在 Schema 中补充语义标注（列注释、枚举值说明、常用查询示例），这些元数据的质量直接决定了 Text-to-SQL 的准确率。
+
+**挑战 2：查询歧义的处理**
+"上个月销量最高的产品"——这里的"销量"是指订单数还是销售额？"最高"是 Top 1 还是 Top 10？优秀的数据分析 Agent 不会猜测，而是在歧义无法解消时主动向用户确认。这需要一个"歧义检测→澄清→重新生成"的交互闭环。
+
 
 ### 25.2.1 Schema 感知的 SQL 生成
 
@@ -36,20 +77,27 @@ interface DatabaseSchema {
   tables: TableDefinition[];
   relationships: Relationship[];
   commonQueries: QueryTemplate[];
-  businessGlossary: Record<string, string>;
-}
-
-class TextToSQLEngine {
-  // ... 省略 81 行，完整实现见 code-examples/ 对应目录
-    const prompt = `The following SQL query failed:\n\`\`\`sql\n${sql}\n\`\`\`\nErrors: ${errors.join('; ')}\n\nOriginal question: "${question}"\n\nGenerate a corrected SQL query:`;
-    const correctedSQL = await this.llm.complete(prompt);
-    const cleanSQL = correctedSQL.replace(/\`\`\`sql\n?|\`\`\`/g, '').trim();
-    return this.db.execute(cleanSQL);
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
 
 ## 25.3 可视化推荐引擎
+
+
+```mermaid
+flowchart LR
+    subgraph Text-to-SQL 优化策略
+        A[Few-shot 示例<br/>按查询类型分类] --> B[Schema 剪枝<br/>只传相关表/列]
+        B --> C[查询校验<br/>语法 + 语义检查]
+        C --> D[自动修复<br/>错误→重试 3 次]
+        D --> E{成功?}
+        E -->|是| F[返回结果]
+        E -->|否| G[降级: 请用户澄清]
+    end
+```
+**图 25-2 Text-to-SQL 优化策略链**——Text-to-SQL 的准确率从 70% 提升到 90% 的关键不在于模型，而在于 Schema 剪枝和 few-shot 示例的质量。
+
 
 ### 25.3.1 智能图表选择
 
@@ -58,15 +106,7 @@ interface ChartRecommendation {
   chartType: 'bar' | 'line' | 'pie' | 'scatter' | 'heatmap' | 'table' | 'kpi_card';
   config: ChartConfig;
   reasoning: string;
-}
-
-class ChartRecommender {
-  recommend(data: QueryResult, intent: AnalysisIntent): ChartRecommendation {
-  // ... 省略 82 行，完整实现见 code-examples/ 对应目录
-    return { type: 'kpi', data: [{ value, label: valueField }], title: valueField, value: Number(value) };
-  }
-  private configureTable(data: QueryResult, profile: DataProfile): ChartConfig {
-    return { type: 'table', data: data.rows, columns: data.columns.map(c => ({ field: c, title: c })), title: 'Query Results' };
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -80,13 +120,7 @@ class InsightGenerator {
   private model: LLMClient;
   
   async generateInsights(
-    question: string,
-    sql: string,
-    data: QueryResult,
-  // ... 省略 7 行
-      while ((match = pattern.exec(text)) !== null) { followups.push(match[1].trim()); }
-    }
-    return followups.length > 0 ? followups : ['按时间维度细分分析', '与历史同期数据对比', '分析主要影响因素'];
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -100,13 +134,7 @@ class DataAnalysisAgent {
   private sqlEngine: TextToSQLEngine;
   private executor: SQLExecutor;
   private chartRecommender: ChartRecommender;
-  private insightGenerator: InsightGenerator;
-  
-  async analyze(question: string, context?: AnalysisContext): Promise<AnalysisResult> {
-  // ... 省略 7 行
-    if (trendKeywords.some(k => question.includes(k))) return { type: 'trend' };
-    if (distributionKeywords.some(k => question.includes(k))) return { type: 'distribution' };
-    return { type: 'exploration' };
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -120,13 +148,7 @@ class DataAnalysisAgent {
 // 避免误报：例如 "SELECT * FROM order_updates" 不会因包含 UPDATE 而被拦截
 const DANGEROUS_STATEMENT_PATTERNS = [
   /^\s*(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|TRUNCATE|EXEC|EXECUTE)\b/i,
-];
-
-function validateSQL(sql: string): { safe: boolean; reason?: string } {
-  // ... 省略 7 行
-      if (!tables.includes(tableName)) tables.push(tableName);
-    }
-    return tables;
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -155,8 +177,7 @@ function validateSQL(sql: string): { safe: boolean; reason?: string } {
 Agent: [生成 SQL → 执行 → 柱状图] 上月收入排名前三的产品线是...
 用户: 为什么 B 产品线下降了这么多？
 Agent: [识别为深入分析 → 生成同比/环比 SQL → 折线图] B 产品线下降主要集中在...
-用户: 是不是华东区的问题？按区域拆分看看
-Agent: [识别为维度下钻 → 交叉分析 → 热力图] 确实，华东区贡献了 B 产品线 70% 的降幅...
+    // ... 完整实现见 code-examples/ 目录 ...
 用户: 华东区 B 产品线的客户流失情况呢？
 Agent: [跨主题跳转 → 关联客户表 → 漏斗图] 过去三个月客户流失率...
 ```
@@ -166,15 +187,7 @@ interface AnalysisSession {
   id: string;
   userId: string;
   history: AnalysisTurn[];
-  context: {
-    currentTables: string[];       // 当前涉及的表
-    currentFilters: Filter[];      // 当前有效的筛选条件
-    currentTimeRange: TimeRange;   // 当前时间范围
-  // ... 省略 145 行，完整实现见 code-examples/ 对应目录
-    if (trendKeywords.some(k => question.includes(k))) return { type: 'trend' };
-    if (distributionKeywords.some(k => question.includes(k))) return { type: 'distribution' };
-    if (correlationKeywords.some(k => question.includes(k))) return { type: 'correlation' };
-    return { type: 'exploration' };
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -186,15 +199,7 @@ class AnalysisContextManager {
   // 从对话历史中提取和维护分析上下文
   extractFilters(history: AnalysisTurn[]): Filter[] {
     const filters: Filter[] = [];
-
-    for (const turn of history) {
-      // 从 SQL 中提取 WHERE 条件
-      const whereMatch = turn.sql.match(/WHERE\s+(.*?)(?:GROUP|ORDER|LIMIT|$)/is);
-  // ... 省略 92 行，完整实现见 code-examples/ 对应目录
-    for (const filter of filters) {
-      seen.set(`${filter.column}_${filter.operator}`, filter);
-    }
-    return [...seen.values()];
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -208,15 +213,7 @@ interface ChartConfig {
   type: string;
   title: string;
   data: any[];
-  xField?: string;
-  yField?: string;
-  seriesField?: string;
-  colorField?: string;
-  // ... 省略 178 行，完整实现见 code-examples/ 对应目录
-  private formatNumber(value: number): string {
-    if (Math.abs(value) >= 1_000_000) return `${(value / 10_000).toFixed(1)}万`;
-    if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-    return value.toFixed(value % 1 === 0 ? 0 : 2);
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -230,15 +227,7 @@ interface DataAccessPolicy {
   userId: string;
   role: 'analyst' | 'manager' | 'director' | 'admin';
   allowedDatabases: string[];
-  allowedTables: TablePermission[];
-  rowFilters: RowFilter[];      // 行级过滤（如只能看自己部门的数据）
-  columnMasks: ColumnMask[];    // 列级脱敏（如薪资列只显示范围）
-  queryLimits: {
-  // ... 省略 174 行，完整实现见 code-examples/ 对应目录
-    }
-
-    // 替换 SELECT 子句中的列引用
-    return sql.replace(new RegExp(`\\b${column}\\b`, 'g'), replacement);
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -250,15 +239,7 @@ class SQLInjectionDefender {
   private readonly DANGEROUS_PATTERNS: { pattern: RegExp; description: string }[] = [
     { pattern: /;\s*(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|TRUNCATE)/i, description: '多语句注入' },
     { pattern: /UNION\s+SELECT/i, description: 'UNION 注入' },
-    { pattern: /--\s*$|#\s*$/m, description: '注释注入' },
-    { pattern: /'\s*OR\s+'?\d*'?\s*=\s*'?\d*'?/i, description: '经典 OR 注入' },
-    { pattern: /SLEEP\s*\(/i, description: '时间盲注' },
-    { pattern: /BENCHMARK\s*\(/i, description: '性能攻击' },
-  // ... 省略 69 行，完整实现见 code-examples/ 对应目录
-      if (char === '(') { currentDepth++; maxDepth = Math.max(maxDepth, currentDepth); }
-      if (char === ')') currentDepth--;
-    }
-    return maxDepth;
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -272,15 +253,7 @@ interface BIConnector {
   name: string;
   type: 'tableau' | 'metabase' | 'superset' | 'grafana' | 'custom';
   
-  // 导出分析结果到 BI 工具
-  export(result: AnalysisResult): Promise<ExportResult>;
-  
-  // 从 BI 工具导入仪表盘定义
-  // ... 省略 78 行，完整实现见 code-examples/ 对应目录
-
-  private async apiCall(method: string, path: string, body?: any): Promise<any> {
-    // HTTP API 调用封装
-    return {};
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -307,15 +280,7 @@ interface TextToSQLBenchmark {
   id: string;
   question: string;             // 自然语言问题
   expectedSQL: string;          // 参考 SQL
-  expectedResult: any[];        // 期望结果（前 N 行）
-  difficulty: 'easy' | 'medium' | 'hard' | 'extra_hard';
-  tags: string[];               // 标签：JOIN, 子查询, 聚合, 时间计算等
-}
-  // ... 省略 155 行，完整实现见 code-examples/ 对应目录
-        generatedSQL: r.generatedSQL,
-        error: r.error,
-      })),
-    };
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -329,15 +294,7 @@ class ConversationalBISystem {
   private agent: ConversationalBIAgent;
   private accessController: DataAccessController;
   private injectionDefender: SQLInjectionDefender;
-  private chartRenderer: ChartRenderer;
-  private contextManager: AnalysisContextManager;
-  private biConnector: MetabaseConnector;
-
-  // ... 省略 107 行，完整实现见 code-examples/ 对应目录
-
-  private async exportExcel(result: AnalysisResult): Promise<ExportResult> {
-    // 使用 ExcelJS 等库生成 Excel 文件
-    return { url: '/downloads/analysis.xlsx', id: 'excel', platform: 'excel' };
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -382,15 +339,7 @@ interface AnomalyDetectionResult {
   anomalies: Anomaly[];
   overallHealthScore: number;  // 0-1，数据整体健康度
 }
-
-interface Anomaly {
-  dimension: string;        // 异常所在维度
-  value: any;               // 异常值
-  // ... 省略 140 行，完整实现见 code-examples/ 对应目录
-      causes.push('该指标显著低于历史水平，建议排查是否存在系统故障或业务异常');
-    }
-
-    return causes;
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -402,13 +351,7 @@ class ForecastEngine {
   // 简单的时间序列预测（移动平均 + 季节性分解）
   forecast(
     historicalData: TimeSeriesPoint[],
-    periods: number
-  ): ForecastResult {
-    if (historicalData.length < 7) {
-  // ... 省略 7 行
-    const d = new Date(date);
-    d.setDate(d.getDate() + days);
-    return d;
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -420,13 +363,7 @@ class ReportGenerator {
   private model: LLMClient;
 
   async generateReport(
-    analyses: AnalysisTurn[],
-    anomalies: AnomalyDetectionResult,
-    forecasts: ForecastResult[],
-  // ... 省略 7 行
-5. 建议行动（2-3 条可执行的建议）
-
-请用中文输出。`;
+    // ... 完整实现见 code-examples/ 目录 ...
   }
 }
 ```
@@ -434,19 +371,29 @@ class ReportGenerator {
 ## 25.16 生产部署清单
 
 ```markdown
+
 ## 数据分析 Agent 上线清单
 
 ### 数据层
-- [ ] 数据源连接配置（读写分离，使用只读副本）
-- [ ] Schema 元数据已导入并定期同步
-- [ ] 业务术语词典已配置
-- [ ] 示例查询库已准备（> 100 条覆盖常见场景）
-  // ... 省略 7 行
-### 监控运营
-- [ ] 查询成功率监控已部署
-- [ ] 延迟监控已部署（P50/P95/P99）
+    // ... 完整实现见 code-examples/ 目录 ...
 - [ ] 用户查询日志分析管线已就位
 - [ ] 知识库缺口自动发现已启用
 ```
 
 数据分析 Agent 的最终目标是让每一位业务人员都拥有自己的"数据分析师"——他们只需要用自然语言提出问题，Agent 就能提供有深度、有洞察、可操作的分析结果。从 Text-to-SQL 到智能可视化，从异常检测到预测分析，本章展示的技术栈为实现这一目标提供了完整的工程蓝图。
+
+
+### 实战案例：某电商平台的数据分析 Agent
+
+一个面向运营团队的数据分析 Agent，在上线前后积累了以下经验：
+
+**上线前的关键优化**：
+- 将 200+ 张表的 Schema 通过语义标注压缩为"业务域-表-核心列"三层索引，使 Schema 检索延迟从 2s 降到 200ms
+- 为 Top 50 高频查询建立了"金标"SQL 模板，LLM 可以直接引用而非从零生成
+- 实现了查询结果的自动可视化推荐：聚合数据→柱状图，时序数据→折线图，占比数据→饼图
+
+**上线后的意外发现**：
+- 运营人员最常用的功能不是复杂分析，而是"用自然语言写 SQL 然后导出 Excel"——简单但高频
+- 最困难的查询不是复杂 SQL，而是涉及业务逻辑的查询（如"有效用户"的定义在不同部门有不同标准）
+- 引入"查询确认"步骤后，用户满意度从 3.8 提升到 4.3（让用户先确认 SQL 语义再执行）
+

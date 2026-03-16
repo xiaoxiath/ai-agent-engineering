@@ -25,6 +25,20 @@
 
 ## 14.1 零信任原则与权限模型
 
+
+```mermaid
+flowchart TB
+    subgraph 信任层级
+        A[零信任基线<br/>所有输入均不可信] --> B[输入验证层<br/>格式/长度/安全规则]
+        B --> C[权限控制层<br/>最小权限 + RBAC]
+        C --> D[执行隔离层<br/>沙箱 + 超时 + 资源限制]
+        D --> E[输出审查层<br/>敏感信息过滤 + 合规检查]
+        E --> F[审计追踪层<br/>全链路日志 + 不可篡改]
+    end
+```
+**图 14-1 Agent 信任架构五层模型**——信任不是二元的（信任/不信任），而是分层递进的。每一层都在前一层的基础上增加一道防线，形成纵深防御。
+
+
 ### 14.1.1 零信任在 Agent 系统中的应用
 
 传统软件系统中，我们倾向于在网络边界建立信任——内网被认为是安全的，外网是不可信的。这种"城堡与护城河"模型在 Agent 系统中完全不适用，原因有三：
@@ -56,11 +70,7 @@
 export enum AgentRole {
   /** 只读角色：只能查询，不能修改任何数据 */
   Reader = "reader",
-  /** 写入角色：可以创建和修改数据，但不能删除或执行敏感操作 */
-  Writer = "writer",
-  // ... 省略 119 行，完整实现见 code-examples/ 对应目录
-    timestamp: number;
-    context: PermissionContext;
+    // ... 完整实现见 code-examples/ 目录 ...
     decision: boolean;
     policyChain: string[];
   };
@@ -78,11 +88,7 @@ import {
   AgentRole,
   PermissionAction,
   ResourceType,
-  DataSensitivity,
-  Permission,
-  // ... 省略 606 行，完整实现见 code-examples/ 对应目录
-      );
-    }
+    // ... 完整实现见 code-examples/ 目录 ...
 
     return results;
   }
@@ -100,11 +106,7 @@ import {
 interface OAuthTokenResponse {
   access_token: string;
   token_type: string;
-  expires_in: number;
-  scope: string;
-  // ... 省略 243 行，完整实现见 code-examples/ 对应目录
-  }
-
+    // ... 完整实现见 code-examples/ 目录 ...
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -138,11 +140,7 @@ import { EventEmitter } from "events";
 
 /** 权限状态枚举 */
 export enum PermissionState {
-  Autonomous = "autonomous",
-  Supervised = "supervised",
-  // ... 省略 320 行，完整实现见 code-examples/ 对应目录
-      clearTimeout(timer);
-    }
+    // ... 完整实现见 code-examples/ 目录 ...
     this.autoRecoveryTimers.clear();
     this.removeAllListeners();
   }
@@ -160,11 +158,7 @@ import { AgentPermissionSystem } from "./agent-permission-system";
 import {
   PermissionStateMachine,
   PermissionState,
-  TransitionTrigger,
-} from "./permission-state-machine";
-  // ... 省略 321 行，完整实现见 code-examples/ 对应目录
-
-  /** 销毁管理器 */
+    // ... 完整实现见 code-examples/ 目录 ...
   public destroy(): void {
     this.stateMachine.destroy();
   }
@@ -195,11 +189,7 @@ import { EventEmitter } from "events";
 import crypto from "crypto";
 
 /** 审批请求状态 */
-export enum ApprovalStatus {
-  Pending = "pending",
-  // ... 省略 600 行，完整实现见 code-examples/ 对应目录
-      clearTimeout(timer);
-    }
+    // ... 完整实现见 code-examples/ 目录 ...
     this.timers.clear();
     this.removeAllListeners();
   }
@@ -217,11 +207,7 @@ export enum ApprovalStatus {
 interface ApprovalEfficiencyStats {
   /** 统计周期 */
   period: { start: number; end: number };
-  /** 总请求数 */
-  totalRequests: number;
-  // ... 省略 296 行，完整实现见 code-examples/ 对应目录
-      bottleneckApprovers,
-      slowestChains: completedRecords,
+    // ... 完整实现见 code-examples/ 目录 ...
       recommendations,
     };
   }
@@ -256,11 +242,7 @@ import { EventEmitter } from "events";
 import crypto from "crypto";
 
 /** 隔离级别 */
-export enum IsolationLevel {
-  Process = "process",
-  // ... 省略 518 行，完整实现见 code-examples/ 对应目录
-
-  /** 获取沙箱实例 */
+    // ... 完整实现见 code-examples/ 目录 ...
   public getSandbox(sandboxId: string): SandboxInstance | undefined {
     return this.instances.get(sandboxId);
   }
@@ -278,11 +260,7 @@ import { ResourceQuota } from "./sandbox-manager";
 
 /** 全局资源池 */
 interface ResourcePool {
-  /** 总 CPU 核数 */
-  totalCpuCores: number;
-  // ... 省略 181 行，完整实现见 code-examples/ 对应目录
-  public getAgentAllocations(agentId: string): ResourceAllocation[] {
-    return Array.from(this.allocations.values()).filter(
+    // ... 完整实现见 code-examples/ 目录 ...
       (a) => a.agentId === agentId && !a.releasedAt
     );
   }
@@ -306,11 +284,7 @@ import crypto from "crypto";
 
 /** 审计事件类型 */
 export enum AuditEventType {
-  /** 权限检查 */
-  PermissionCheck = "permission_check",
-  // ... 省略 713 行，完整实现见 code-examples/ 对应目录
-
-  /** 获取保留策略列表 */
+    // ... 完整实现见 code-examples/ 目录 ...
   public getRetentionPolicies(): RetentionPolicy[] {
     return [...this.retentionPolicies];
   }
@@ -345,11 +319,7 @@ export enum AuditEventType {
 export enum TrustDimension {
   HistoricalPerformance = "historical_performance",
   SecurityRecord = "security_record",
-  ComplianceRecord = "compliance_record",
-  UserFeedback = "user_feedback",
-  // ... 省略 569 行，完整实现见 code-examples/ 对应目录
-      history,
-      dimensionBreakdown,
+    // ... 完整实现见 code-examples/ 目录 ...
       recentTransitions,
     };
   }
@@ -385,11 +355,7 @@ import crypto from "crypto";
 import { EventEmitter } from "events";
 
 /** 委托权限范围 */
-interface DelegationScope {
-  /** 允许的操作类型 */
-  // ... 省略 348 行，完整实现见 code-examples/ 对应目录
-    const delegationIds = this.delegateeIndex.get(agentId) ?? [];
-    return delegationIds
+    // ... 完整实现见 code-examples/ 目录 ...
       .map((id) => this.delegations.get(id)!)
       .filter((d) => d && d.status === "active");
   }
@@ -407,11 +373,7 @@ interface DelegationScope {
  * 权限来源标记
  *
  * 每个操作请求都必须携带权限来源标记，
- * 说明"这个权限是谁给我的，用于什么目的"
- */
-  // ... 省略 218 行，完整实现见 code-examples/ 对应目录
-   * 获取检测日志
-   */
+    // ... 完整实现见 code-examples/ 目录 ...
   public getDetectionLog(): typeof this.detectionLog {
     return [...this.detectionLog];
   }
@@ -435,11 +397,7 @@ import { EventEmitter } from "events";
 import {
   AgentPermissionSystem,
 } from "../core/agent-permission-system";
-import {
-  DynamicPermissionManager,
-  // ... 省略 641 行，完整实现见 code-examples/ 对应目录
-  public destroy(): void {
-    this.permissionManager.destroy();
+    // ... 完整实现见 code-examples/ 目录 ...
     this.hitlOrchestrator.destroy();
     this.removeAllListeners();
   }
@@ -457,11 +415,7 @@ import { TrustArchitecture } from "../integration/trust-architecture";
 import { AgentRole } from "../types/permission";
 import { UrgencyLevel, ApprovalMode } from "../hitl/hitl-orchestrator";
 
-async function main(): Promise<void> {
-  // 1. 创建信任架构实例
-  // ... 省略 156 行，完整实现见 code-examples/ 对应目录
-
-  // 清理
+    // ... 完整实现见 code-examples/ 目录 ...
   trustArch.destroy();
 }
 
@@ -515,11 +469,7 @@ import * as crypto from "crypto";
 
 interface MCPServerManifest {
   name: string;
-  version: string;
-  publisher: string;
-  // ... 省略 226 行，完整实现见 code-examples/ 对应目录
-}
-
+    // ... 完整实现见 code-examples/ 目录 ...
 interface PermissionPolicy {
   serverCategory: string;
   allowedPermissions: PermissionScope[];

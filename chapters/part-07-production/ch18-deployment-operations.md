@@ -327,6 +327,7 @@ export class AgentAutoScaler {
 对于已经采用 KEDA（Kubernetes Event Driven Autoscaling）的团队，可以通过 KEDA 的 Prometheus 触发器将 Agent 特有指标接入事件驱动扩缩容。以下是一个典型配置，结合了队列深度、响应延迟和工作时间预调度三个触发器：
 
 ```yaml
+
 # KEDA ScaledObject — Agent 场景典型配置
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -584,7 +585,7 @@ Agent 系统的运维复杂度远超传统服务。一个传统 Web 服务的运
 
 一个典型的自愈规则配置如下：当 `alert` 类型事件的严重级别达到 `critical` 时，依次执行 `restart_pod`（超时 30 秒）→ `scale_up`（增加 2 个副本）→ `notify`（通知 Slack 频道）。冷却期 5 分钟，每小时最多执行 3 次。
 
-ChatOps 集成让运维人员可以在即时通讯工具中直接操控系统。常用命令包括：`/agent status` 查看系统状态、`/agent scale <deployment> <replicas>` 手动扩缩容、`/agent heal <rule-id>` 手动触发自愈规则、`/agent events` 查看最近事件。ChatOps 的最大价值不仅仅是便利性——它还自动记录了每个操作的执行者、时间和上下文，为事后复盘提供完整的审计轨迹。
+ChatOps 集成让运维人员可以在即时通讯工具中直接操控系统。常用命令包括：`/Agent status` 查看系统状态、`/Agent scale <deployment> <replicas>` 手动扩缩容、`/Agent heal <rule-id>` 手动触发自愈规则、`/Agent events` 查看最近事件。ChatOps 的最大价值不仅仅是便利性——它还自动记录了每个操作的执行者、时间和上下文，为事后复盘提供完整的审计轨迹。
 
 ```typescript
 // 文件: agent-ops-automation.ts — 自愈执行核心

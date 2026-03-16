@@ -4,9 +4,10 @@
 
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 [![TypeScript](https://img.shields.io/badge/Code-TypeScript-blue.svg)](https://www.typescriptlang.org/)
+[![Python](https://img.shields.io/badge/Code-Python-yellow.svg)](https://www.python.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-一本面向 AI Agent 开发者的系统性工程指南，涵盖架构设计、Context Engineering、Multi-Agent 编排、安全防御、评估体系、生产部署到前沿趋势的完整知识体系。
+一本面向 AI Agent 开发者的系统性工程指南，全书共 **11 部分 28 章**，涵盖架构设计、Context Engineering、Skill 工程、Multi-Agent 编排、安全防御、评估体系、生产部署到前沿趋势的完整知识体系。
 
 ## 为什么写这本书
 
@@ -27,7 +28,7 @@
 
 ## 技术栈
 
-全书以 **TypeScript** 为主要示例语言，涉及的主要框架和工具：
+全书以 **TypeScript** 为主要示例语言（附 **Python** 等价实现），涉及的主要框架和工具：
 
 - **Agent 框架**：Google ADK、LangGraph、CrewAI、AutoGen、OpenAI Agents SDK、Mastra、Vercel AI SDK v5
 - **协议标准**：MCP（Model Context Protocol）、A2A（Agent2Agent）、ANP（Agent Network Protocol）、ACP
@@ -51,7 +52,8 @@ ai-agent-engineering/
 │   │   ├── ch03-architecture-overview.md
 │   │   ├── ch04-state-management.md
 │   │   ├── ch05-context-engineering.md
-│   │   └── ch06-tool-system-design.md
+│   │   ├── ch06-tool-system-design.md
+│   │   └── ch06.5-skill-engineering.md
 │   ├── part-03-memory-knowledge/      # 第三部分：记忆与知识
 │   │   ├── ch07-memory-architecture.md
 │   │   └── ch08-rag-knowledge-engineering.md
@@ -88,7 +90,8 @@ ai-agent-engineering/
 │   ├── appendix-c-protocol-specs.md
 │   ├── appendix-d-owasp-checklist.md
 │   ├── appendix-e-benchmark-catalog.md
-│   └── appendix-f-recommended-reading.md
+│   ├── appendix-f-recommended-reading.md
+│   └── appendix-g-python-equivalents.md
 └── code-examples/
     ├── ch03-control-loop/
     │   └── agent-loop.ts
@@ -102,6 +105,8 @@ ai-agent-engineering/
     ├── ch06-tool-system/
     │   ├── tool-design.ts
     │   └── response-format.ts
+    ├── ch06.5-skill-engineering/
+    │   └── skill-patterns.ts
     ├── ch09-multi-agent/
     │   ├── sequential-agent.ts
     │   ├── parallel-agent.ts
@@ -126,6 +131,9 @@ npm install
 
 # 运行特定章节的代码示例
 npx ts-node ch03-control-loop/agent-loop.ts
+
+# 运行 Python 等价示例
+python ch03-control-loop/agent_loop.py
 ```
 
 ## 参与贡献
@@ -138,6 +146,31 @@ npx ts-node ch03-control-loop/agent-loop.ts
 - 🌐 翻译为其他语言
 - 📊 补充案例研究
 - 🔗 更新参考链接
+
+## 2026年3月修订说明
+
+本次修订为全书最大规模的一次系统性更新，主要变更包括：
+
+### P0 缺陷修复
+- 修正全书模型版本名称（如 Claude Opus 4.6 / Sonnet 4.6、GPT-5、Gemini 3 Pro 等）
+- 修复代码示例中的语法错误与类型标注问题
+- 消除多章节间的重复段落与冗余定义（跨章节去重）
+
+### 新增内容
+- **新章节**：第 6.5 章「Skill 工程 —— 从工具调用到知识驱动的范式跃迁」
+- **新附录**：附录 G「Python 等价实现」，为全书 TypeScript 代码示例提供 Python 对照版本
+
+### 重大更新
+- **Ch11 框架对比**：新增 Claude Agent SDK 深度解析，补充 Mastra / Vercel AI SDK v5 对比
+- **Ch23-Ch27 实战与前沿**：从大纲桩（stub）扩写为完整章节
+- **Ch26 前沿趋势**：更新行业视角 —— MCP 协议论争、RAG 替代方案争论、Context Engineering 范式演进
+- **全书代码示例**：增加 Python 等价实现，支持双语言对照学习
+
+### 行业动态更新
+- 更新 MCP 协议生态最新进展与社区论争观点
+- 补充 RAG 替代技术路线讨论（长上下文 vs 检索增强）
+- 新增 Context Engineering 作为独立工程学科的论述
+
 
 ## 致谢
 

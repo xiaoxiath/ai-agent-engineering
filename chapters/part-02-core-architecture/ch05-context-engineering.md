@@ -4349,7 +4349,148 @@ class ContextFreshnessValidator {
 ---
 
 
-## 5.8 章节总结与最佳实践
+## 5.8 Context Engineering 取代 Prompt Engineering：2026 年的范式转移
+
+### 5.8.1 从"怎么问"到"给什么信息"
+
+2026 年初，AI 工程社区形成了一个明确的共识：**Context Engineering（上下文工程）正在取代 Prompt Engineering（提示词工程）** 成为构建高质量 AI Agent 的核心技能。
+
+这两者的根本区别在于：
+
+| 维度 | Prompt Engineering | Context Engineering |
+|------|-------------------|-------------------|
+| 关注焦点 | **怎么问**（措辞、格式、指令） | **给什么信息**（上下文架构） |
+| 作用范围 | 单次指令（数百 Token） | 整个信息架构（数千到数百万 Token） |
+| 主要杠杆 | 措辞优化、Few-shot 示例 | 数据格式、检索架构、文件组织 |
+| 影响量级 | 边际改进 | 决定性影响（+21% 准确率差距来自模型选择，而非提示词） |
+| 适用阶段 | 原型阶段 | 生产阶段 |
+
+McMillan（2026）在一项涵盖 9,649 个实验、11 个模型的大规模研究中，提供了首个关于上下文结构如何影响 LLM Agent 性能的实证数据。
+
+### 5.8.2 关键发现：模型选择 >> 提示词优化
+
+```typescript
+// McMillan (2026) 研究的核心发现建模
+interface ContextEngineeringFindings {
+  // 发现 1：模型选择的影响远超其他因素
+  modelSelectionImpact: {
+    frontierVsOpenSource: '+21 percentage points';  // 最大单一因素
+    description: '模型选择是最高杠杆决策，而非提示词调优';
+  };
+  
+  // 发现 2：文件化上下文对前沿模型有效，对开源模型有害
+  fileBasedContext: {
+    frontierModels: '+2.7% accuracy (p=0.029)';
+    openSourceModels: '-7.7% accuracy (p<0.001)';
+    implication: '架构决策必须与模型能力匹配';
+  };
+  
+  // 发现 3：数据格式几乎不影响结果
+  formatImpact: {
+    chiSquared: 2.45;
+    pValue: 0.484;  // 不显著
+    conclusion: 'YAML/Markdown/JSON/TOON 之间无统计显著差异';
+  };
+  
+  // 发现 4："Grep Tax"——紧凑格式反而增加推理成本
+  grepTax: {
+    description: 'TOON（最紧凑格式）导致模型花费更多 Token 推理不熟悉的格式';
+    lesson: '熟悉度 > 压缩率';
+  };
+  
+  // 发现 5：文件原生 Agent 可扩展到 10,000 张表
+  scalability: {
+    maxTables: 10000;
+    method: '领域分区的文件结构';
+    description: '远超任何单一上下文窗口的容量限制';
+  };
+}
+```
+
+### 5.8.3 Context Engineering 的实践框架
+
+基于最新研究和生产实践，我们将 Context Engineering 的方法论扩展为 **WSCIPO+** 框架：
+
+```typescript
+// WSCIPO+ 框架：扩展版上下文工程
+class ContextEngineeringFramework {
+  // 原始 WSCIPO（本章前文已述）
+  // W - Write: 编写系统提示
+  // S - Select: 选择相关上下文
+  // C - Compress: 压缩上下文
+  // I - Isolate: 隔离上下文
+  // P - Persist: 持久化上下文
+  // O - Observe: 观测上下文使用
+  
+  // 新增的 "+" 扩展
+  
+  // M - Match: 架构-模型匹配
+  async matchArchitectureToModel(model: ModelProfile): Promise<ContextArchitecture> {
+    if (model.tier === 'frontier') {
+      // 前沿模型：使用文件化上下文，收益 +2.7%
+      return {
+        strategy: 'file-native',
+        contextDelivery: 'filesystem-based',
+        maxSchemaScale: 10000,
+        recommendation: '使用文件系统组织上下文，按需加载'
+      };
+    } else {
+      // 开源模型：使用单一上下文，避免 -7.7% 的性能损失
+      return {
+        strategy: 'single-context',
+        contextDelivery: 'inline',
+        maxSchemaScale: 100,
+        recommendation: '将所有必要信息放入单一提示，避免文件引用'
+      };
+    }
+  }
+  
+  // D - Discover: 动态上下文发现
+  async discoverRelevantContext(task: string): Promise<ContextItem[]> {
+    // Agent 自主决定需要哪些上下文
+    const plan = await this.planner.analyzeContextNeeds(task);
+    const items: ContextItem[] = [];
+    
+    for (const need of plan.contextNeeds) {
+      switch (need.type) {
+        case 'skill':
+          items.push(await this.skillLoader.loadSkill(need.name));
+          break;
+        case 'file':
+          items.push(await this.fileSystem.read(need.path));
+          break;
+        case 'memory':
+          items.push(await this.memoryStore.recall(need.query));
+          break;
+        case 'tool_schema':
+          items.push(await this.toolRegistry.getSchema(need.toolName));
+          break;
+      }
+    }
+    
+    return this.prioritize(items, plan.tokenBudget);
+  }
+}
+```
+
+### 5.8.4 从 Prompt Engineer 到 Context Engineer
+
+对于 Agent 开发者而言，这一范式转移意味着技能重心的调整：
+
+| 旧范式（Prompt Engineering） | 新范式（Context Engineering） |
+|---------------------------|---------------------------|
+| 花大量时间优化系统提示的措辞 | 花时间设计信息架构和检索策略 |
+| A/B 测试不同的提示模板 | A/B 测试不同的上下文组装策略 |
+| 手动编写 Few-shot 示例 | 动态检索最相关的示例 |
+| 针对特定模型优化提示 | 设计模型无关的上下文架构 |
+| 关注 Token 使用量的上限 | 关注上下文质量与 Token 效率的平衡 |
+
+> **关键认知**：在 Agent 系统中，提示词质量的影响被上下文质量的影响所压倒。最好的提示词配合错误的上下文，不如普通的提示词配合精心工程化的上下文。
+
+---
+
+
+## 5.9 章节总结与最佳实践
 
 ### 核心框架回顾
 

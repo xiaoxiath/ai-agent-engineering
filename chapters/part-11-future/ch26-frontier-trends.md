@@ -647,7 +647,54 @@ class PersistentAgent implements LongRunningAgent {
   └── 通用 Agent 雏形
 ```
 
-## 26.11 小结
+
+## 26.11 Agentic Coding：重塑软件工程经济学
+
+根据 Anthropic《2026 Agentic Coding Trends Report》，Agent 编码正在引发软件工程领域的八大趋势：
+
+### 26.11.1 八大趋势概览
+
+| # | 趋势 | 核心变化 |
+|---|------|---------|
+| 1 | 软件开发生命周期剧变 | AI 从辅助工具变为开发平台 |
+| 2 | 单 Agent 进化为协调团队 | Multi-agent 编码工作流成为标准 |
+| 3 | 长时运行 Agent 构建完整系统 | 从分钟级任务到小时/天级项目 |
+| 4 | 人类监督通过智能协作扩展 | Agent 主动请求审查、报告进度 |
+| 5 | Agentic Coding 扩展到新界面和用户 | 非技术人员也能"编程" |
+| 6 | 生产力增益重塑软件开发经济学 | 更少开发者完成更多工作 |
+| 7 | 非技术用例跨组织扩展 | 市场、法务、财务部门使用 Agent |
+| 8 | 双重用途风险需要安全优先架构 | Agent 生成的代码需要新的安全审计方法 |
+
+### 26.11.2 "Repository Intelligence" 的出现
+
+Agent 不再仅仅理解单个文件，而是理解整个代码仓库的架构、依赖关系和设计意图。这是 2026 年最重要的技术突破之一：
+
+```typescript
+// Repository Intelligence：Agent 对代码库的全局理解
+class RepositoryIntelligence {
+  async analyzeRepository(repoPath: string): Promise<RepoUnderstanding> {
+    // 1. 项目结构理解
+    const structure = await this.mapProjectStructure(repoPath);
+    
+    // 2. 依赖图谱构建
+    const dependencies = await this.buildDependencyGraph(repoPath);
+    
+    // 3. 架构模式识别
+    const patterns = await this.identifyArchitecturalPatterns(structure, dependencies);
+    
+    // 4. 设计意图推断
+    const intent = await this.inferDesignIntent(patterns, {
+      readme: await this.readFile(`${repoPath}/README.md`),
+      commits: await this.getRecentCommits(repoPath, 100),
+      issues: await this.getOpenIssues(repoPath)
+    });
+    
+    return { structure, dependencies, patterns, intent };
+  }
+}
+```
+
+## 26.12 小结
 
 AI Agent 领域正在从「能用」走向「好用」，从「单一任务」走向「通用能力」。2026 年的前沿趋势清晰地指向一个核心主题：**工程胜过模型**。
 
@@ -656,3 +703,1648 @@ Harness Engineering 的提出标志着行业共识的形成——在模型同质
 与此同时，推理能力的持续提升、上下文窗口的跨越式增长、开源模型的崛起，都在从底层推动 Agent 能力的普惠化。这些趋势共同指向本书贯穿始终的核心理念：**确定性外壳包裹概率性内核**——模型越强大、越普及，我们越需要严谨的工程方法来驾驭它。
 
 工程师需要保持技术敏锐度，但更重要的是建立系统性的工程思维——投资于约束系统、评估管线、部署基础设施和开发纪律，在实战中积累组织级的 Agent 工程能力，为已经到来的 Agent 时代做好准备。
+
+
+## 26.13 世界模型与 Agent 规划革命
+
+### 26.13.1 从语言模型到世界模型
+
+26.6 节简要介绍了具身智能的接口定义。本节将深入探讨世界模型（World Model）的内部机制——这被广泛认为是 Agent 从"对话工具"进化为"自主行动者"的关键缺失拼图。
+
+**什么是世界模型？** 世界模型是 Agent 内部维护的一个对外部环境的可计算表示，它使 Agent 能够：
+
+1. **预测**：在不实际执行动作的情况下，预测动作的后果
+2. **规划**：通过在内部模拟中"试错"来选择最优行动序列
+3. **反事实推理**：评估"如果当时采取不同行动会怎样"
+4. **因果推断**：区分相关性和因果关系
+
+这与 LLM 的能力形成本质区别——LLM 擅长语言层面的推理（"如果 A 则 B"的自然语言推导），但缺乏对物理世界、代码执行环境、数据库状态等领域的结构化建模能力。
+
+```typescript
+// 世界模型的核心架构
+interface WorldModel<TState, TAction> {
+  // 状态转移函数：给定当前状态和动作，预测下一状态
+  transition(state: TState, action: TAction): Promise<TransitionResult<TState>>;
+  
+  // 奖励/评价函数：评估某个状态对于目标的好坏
+  evaluate(state: TState, goal: Goal): Promise<number>;
+  
+  // 观测更新：基于真实观测修正内部状态
+  update(predictedState: TState, observation: Observation): Promise<TState>;
+  
+  // 不确定性量化：当前预测的置信度
+  uncertainty(state: TState): Promise<UncertaintyEstimate>;
+}
+
+interface TransitionResult<TState> {
+  nextState: TState;
+  probability: number;     // 该转移发生的概率
+  sideEffects: SideEffect[];  // 副作用列表
+  reversible: boolean;     // 是否可逆
+}
+
+interface UncertaintyEstimate {
+  aleatoric: number;    // 数据固有的不确定性（不可消除）
+  epistemic: number;    // 知识不足导致的不确定性（可通过更多数据消除）
+  total: number;
+  suggestion: 'proceed' | 'gather_more_info' | 'ask_human';
+}
+```
+
+### 26.13.2 分层世界模型架构
+
+现实中的 Agent 需要在多个抽象层次上理解世界。一个数据分析 Agent 需要理解 SQL 执行语义（低层）、业务指标含义（中层）和组织目标（高层）。分层世界模型通过将环境建模为多层抽象来解决这一问题：
+
+```typescript
+class HierarchicalWorldModel<TState, TAction> {
+  private layers: WorldModelLayer[];
+  
+  constructor(
+    private physicalLayer: WorldModelLayer,   // 物理/执行层
+    private semanticLayer: WorldModelLayer,   // 语义/含义层
+    private strategicLayer: WorldModelLayer   // 策略/目标层
+  ) {
+    this.layers = [physicalLayer, semanticLayer, strategicLayer];
+  }
+  
+  // 多层预测：从底向上逐层预测
+  async predict(
+    state: MultiLevelState,
+    action: TAction
+  ): Promise<MultiLevelPrediction> {
+    // 第一层：物理/执行层面的预测
+    // 例如：执行 SQL 查询会返回什么数据？API 调用会产生什么响应？
+    const physicalPrediction = await this.physicalLayer.predict(
+      state.physical, action
+    );
+    
+    // 第二层：语义层面的预测
+    // 例如：这个查询结果意味着什么？用户会如何理解这个响应？
+    const semanticPrediction = await this.semanticLayer.predict(
+      state.semantic, physicalPrediction
+    );
+    
+    // 第三层：策略层面的预测
+    // 例如：这个行动对达成最终目标有多大帮助？
+    const strategicPrediction = await this.strategicLayer.predict(
+      state.strategic, semanticPrediction
+    );
+    
+    return {
+      physical: physicalPrediction,
+      semantic: semanticPrediction,
+      strategic: strategicPrediction,
+      overallConfidence: this.combineConfidence(
+        physicalPrediction.confidence,
+        semanticPrediction.confidence,
+        strategicPrediction.confidence
+      ),
+    };
+  }
+  
+  // 基于多层预测的规划
+  async plan(
+    currentState: MultiLevelState,
+    goal: Goal,
+    constraints: PlanningConstraints
+  ): Promise<Plan> {
+    const candidates: PlanCandidate[] = [];
+    
+    // 策略层：生成高层方案
+    const strategies = await this.strategicLayer.generateStrategies(
+      currentState.strategic, goal
+    );
+    
+    for (const strategy of strategies) {
+      // 语义层：将策略分解为语义步骤
+      const semanticSteps = await this.semanticLayer.decompose(strategy);
+      
+      // 物理层：将语义步骤具体化为可执行动作
+      const actionSequence = await this.physicalLayer.concretize(semanticSteps);
+      
+      // 在世界模型中模拟执行，评估效果
+      const simulation = await this.simulate(currentState, actionSequence);
+      
+      candidates.push({
+        strategy,
+        actions: actionSequence,
+        predictedOutcome: simulation.finalState,
+        predictedCost: simulation.totalCost,
+        predictedRisk: simulation.maxRisk,
+        confidence: simulation.confidence,
+      });
+    }
+    
+    // 选择最优方案：考虑效果、成本、风险和置信度
+    return this.selectBestPlan(candidates, constraints);
+  }
+  
+  // 内部模拟器：无需真实执行就能评估方案
+  private async simulate(
+    initialState: MultiLevelState,
+    actions: Action[]
+  ): Promise<SimulationResult> {
+    let state = initialState;
+    let totalCost = 0;
+    let maxRisk = 0;
+    const trajectory: SimulationStep[] = [];
+    
+    for (const action of actions) {
+      const prediction = await this.predict(state, action);
+      
+      // 如果某一步的不确定性太高，标记需要信息收集
+      if (prediction.overallConfidence < 0.4) {
+        trajectory.push({
+          action,
+          prediction,
+          flag: 'high_uncertainty',
+          suggestion: '建议在此步骤前先收集更多信息'
+        });
+      }
+      
+      totalCost += this.estimateCost(action);
+      maxRisk = Math.max(maxRisk, this.estimateRisk(prediction));
+      
+      state = this.applyPrediction(state, prediction);
+      trajectory.push({ action, prediction, flag: 'normal' });
+    }
+    
+    return {
+      finalState: state,
+      totalCost,
+      maxRisk,
+      confidence: trajectory.reduce((min, s) => 
+        Math.min(min, s.prediction.overallConfidence), 1.0
+      ),
+      trajectory,
+    };
+  }
+  
+  private combineConfidence(...confidences: number[]): number {
+    return confidences.reduce((a, b) => a * b, 1);
+  }
+  private selectBestPlan(candidates: PlanCandidate[], constraints: PlanningConstraints): Plan {
+    return {} as Plan;
+  }
+  private estimateCost(action: Action): number { return 0; }
+  private estimateRisk(prediction: MultiLevelPrediction): number { return 0; }
+  private applyPrediction(state: MultiLevelState, prediction: MultiLevelPrediction): MultiLevelState {
+    return state;
+  }
+}
+```
+
+### 26.13.3 世界模型在不同 Agent 领域的应用
+
+| Agent 类型 | 物理层建模 | 语义层建模 | 策略层建模 |
+|-----------|-----------|-----------|-----------|
+| 编程 Agent | AST 变换、编译结果、测试通过率 | 代码语义、API 契约、架构影响 | 需求满足度、技术债务影响 |
+| 数据分析 Agent | SQL 执行结果、数据分布 | 业务指标含义、趋势方向 | 决策支持价值、洞察深度 |
+| 客服 Agent | 系统查询结果、工单状态 | 用户意图、情绪变化 | 客户满意度、问题解决率 |
+| 具身 Agent | 物理运动、碰撞检测 | 场景语义、物体关系 | 任务目标达成、安全约束 |
+| 金融 Agent | 交易执行、市场行情 | 风险暴露、合规状态 | 投资目标、风险偏好满足 |
+
+### 26.13.4 Monte Carlo Tree Search (MCTS) 与 Agent 规划
+
+推理模型（如 o1/o3）的内部机制被广泛推测使用了类似 MCTS 的搜索策略。Agent 开发者可以在规划层面显式运用这一思想：
+
+```typescript
+class MCTSPlanner {
+  private worldModel: WorldModel<any, any>;
+  private explorationWeight: number = 1.414; // UCB1 探索系数
+  
+  async plan(
+    rootState: any,
+    goal: Goal,
+    config: MCTSConfig
+  ): Promise<ActionSequence> {
+    const root = new MCTSNode(rootState, null, null);
+    
+    for (let i = 0; i < config.numSimulations; i++) {
+      // 1. 选择：沿着最有前景的路径向下选择
+      const selected = this.select(root);
+      
+      // 2. 扩展：在选中的叶节点生成新的子节点
+      const expanded = await this.expand(selected);
+      
+      // 3. 模拟：从新节点开始随机模拟到终局
+      const reward = await this.simulate(expanded, goal, config.simulationDepth);
+      
+      // 4. 反向传播：将模拟结果沿路径回传
+      this.backpropagate(expanded, reward);
+    }
+    
+    // 选择访问次数最多（最robust）的路径
+    return this.extractBestPath(root);
+  }
+  
+  private select(node: MCTSNode): MCTSNode {
+    while (!node.isLeaf() && node.isFullyExpanded()) {
+      node = this.bestUCB1Child(node);
+    }
+    return node;
+  }
+  
+  private bestUCB1Child(node: MCTSNode): MCTSNode {
+    let bestChild: MCTSNode | null = null;
+    let bestValue = -Infinity;
+    
+    for (const child of node.children) {
+      // UCB1 公式：平衡探索（exploration）与利用（exploitation）
+      const exploitation = child.totalReward / child.visitCount;
+      const exploration = this.explorationWeight * 
+        Math.sqrt(Math.log(node.visitCount) / child.visitCount);
+      const ucb1 = exploitation + exploration;
+      
+      if (ucb1 > bestValue) {
+        bestValue = ucb1;
+        bestChild = child;
+      }
+    }
+    
+    return bestChild!;
+  }
+  
+  private async expand(node: MCTSNode): Promise<MCTSNode> {
+    // 使用世界模型生成可能的下一步动作
+    const possibleActions = await this.worldModel.getPossibleActions(node.state);
+    const unexpandedActions = possibleActions.filter(a => 
+      !node.children.some(c => c.action === a)
+    );
+    
+    if (unexpandedActions.length === 0) return node;
+    
+    // 随机选择一个未扩展的动作
+    const action = unexpandedActions[Math.floor(Math.random() * unexpandedActions.length)];
+    const result = await this.worldModel.transition(node.state, action);
+    
+    const child = new MCTSNode(result.nextState, action, node);
+    node.children.push(child);
+    return child;
+  }
+  
+  private async simulate(
+    node: MCTSNode, 
+    goal: Goal, 
+    maxDepth: number
+  ): Promise<number> {
+    let state = node.state;
+    let totalReward = 0;
+    
+    for (let depth = 0; depth < maxDepth; depth++) {
+      const actions = await this.worldModel.getPossibleActions(state);
+      if (actions.length === 0) break;
+      
+      // 使用快速启发式策略（而非随机）选择动作
+      const action = await this.heuristicPolicy(state, actions, goal);
+      const result = await this.worldModel.transition(state, action);
+      
+      totalReward += await this.worldModel.evaluate(result.nextState, goal);
+      state = result.nextState;
+    }
+    
+    return totalReward;
+  }
+  
+  private backpropagate(node: MCTSNode, reward: number): void {
+    let current: MCTSNode | null = node;
+    while (current !== null) {
+      current.visitCount += 1;
+      current.totalReward += reward;
+      current = current.parent;
+    }
+  }
+  
+  private async heuristicPolicy(state: any, actions: any[], goal: Goal): Promise<any> {
+    return actions[0];
+  }
+  private extractBestPath(root: MCTSNode): ActionSequence {
+    return {} as ActionSequence;
+  }
+}
+
+class MCTSNode {
+  children: MCTSNode[] = [];
+  visitCount: number = 0;
+  totalReward: number = 0;
+  
+  constructor(
+    public state: any,
+    public action: any | null,
+    public parent: MCTSNode | null
+  ) {}
+  
+  isLeaf(): boolean { return this.children.length === 0; }
+  isFullyExpanded(): boolean { return false; /* 省略 */ }
+}
+```
+
+> **设计决策：何时需要显式世界模型？**
+>
+> 并非所有 Agent 都需要显式的世界模型。对于简单的 ReAct 循环（第 3 章）、确定性工作流（第 10 章），LLM 的隐式推理能力已经足够。显式世界模型在以下场景中价值最大：
+>
+> - **动作不可逆且代价高昂**（如金融交易、数据库迁移、物理机器人操作）
+> - **规划深度 > 5 步**（LLM 的隐式规划在长序列上容易退化）
+> - **需要多方案并行评估**（MCTS 等搜索算法需要模拟器支持）
+> - **安全关键场景**（世界模型可以在执行前检测危险状态）
+>
+> 参见第 14 章信任架构中关于"预飞检查"（pre-flight check）的讨论——世界模型是最彻底的预飞检查形式。
+
+### 26.13.5 世界模型的训练与获取
+
+一个实际的工程挑战是：世界模型从何而来？
+
+| 获取方式 | 描述 | 适用场景 | 局限 |
+|---------|------|---------|------|
+| **手工编码** | 开发者根据领域知识编写规则 | 规则清晰的封闭域（棋类、配置管理） | 无法扩展到复杂开放域 |
+| **从日志学习** | 从历史执行日志中学习状态转移模式 | 有丰富历史数据的系统（CI/CD、数据库操作） | 需要大量高质量日志 |
+| **LLM 模拟** | 使用 LLM 作为通用世界模拟器 | 语言交互场景（对话、文本处理） | 物理精度低、幻觉风险 |
+| **混合模式** | 确定性规则 + LLM 推理 + 历史统计 | 生产级 Agent 系统 | 工程复杂度高 |
+
+```typescript
+// 混合世界模型：结合规则、统计和 LLM
+class HybridWorldModel implements WorldModel<SystemState, AgentAction> {
+  constructor(
+    private rules: DeterministicRules,      // 确定性规则（如 SQL 语法验证）
+    private statistics: StatisticalModel,   // 统计模型（如历史成功率）
+    private llm: LLMSimulator              // LLM 模拟器（处理开放域推理）
+  ) {}
+  
+  async transition(
+    state: SystemState, 
+    action: AgentAction
+  ): Promise<TransitionResult<SystemState>> {
+    // 优先使用确定性规则（成本低、准确率高）
+    const ruleResult = this.rules.tryTransition(state, action);
+    if (ruleResult.applicable) {
+      return {
+        nextState: ruleResult.nextState,
+        probability: 1.0,
+        sideEffects: ruleResult.sideEffects,
+        reversible: ruleResult.reversible
+      };
+    }
+    
+    // 其次使用统计模型（中等成本、基于历史数据）
+    const statsResult = this.statistics.tryTransition(state, action);
+    if (statsResult.confidence > 0.8) {
+      return {
+        nextState: statsResult.mostLikelyState,
+        probability: statsResult.confidence,
+        sideEffects: statsResult.expectedSideEffects,
+        reversible: statsResult.typicallyReversible
+      };
+    }
+    
+    // 最后回退到 LLM 模拟（高成本、处理未见场景）
+    const llmResult = await this.llm.simulate(state, action);
+    return {
+      nextState: llmResult.predictedState,
+      probability: llmResult.confidence * 0.7, // LLM 结果降权
+      sideEffects: llmResult.predictedSideEffects,
+      reversible: llmResult.estimatedReversibility
+    };
+  }
+  
+  async evaluate(state: SystemState, goal: Goal): Promise<number> {
+    return this.rules.evaluate(state, goal) 
+      ?? this.statistics.evaluate(state, goal) 
+      ?? await this.llm.evaluate(state, goal);
+  }
+  
+  async update(predicted: SystemState, observation: Observation): Promise<SystemState> {
+    // 用真实观测修正预测
+    const corrected = this.reconcile(predicted, observation);
+    // 更新统计模型
+    this.statistics.recordTransition(predicted, observation);
+    return corrected;
+  }
+  
+  async uncertainty(state: SystemState): Promise<UncertaintyEstimate> {
+    return {} as UncertaintyEstimate;
+  }
+  
+  private reconcile(predicted: SystemState, observation: Observation): SystemState {
+    return {} as SystemState;
+  }
+}
+```
+
+## 26.14 自我改进型 Agent
+
+### 26.14.1 从静态部署到持续进化
+
+传统 Agent 在部署后本质上是静态的——系统提示词、工具集和约束规则由开发者手工维护，模型权重由提供商固定。自我改进型 Agent（Self-Improving Agent）的愿景是让 Agent 能够基于运行时经验自主提升自身能力。
+
+这并非科幻：多个前沿研究方向已在探索不同层面的自我改进：
+
+| 改进层面 | 机制 | 当前成熟度 | 风险等级 |
+|---------|------|-----------|---------|
+| **提示词优化** | 自动搜索更优的系统提示词 | 高 | 低 |
+| **工具发现** | Agent 自主发现并学会使用新工具 | 中 | 中 |
+| **策略学习** | 从成功/失败经验中学习更优的行动策略 | 中 | 中 |
+| **知识积累** | 将解决过的问题转化为可复用知识 | 中 | 低 |
+| **自我代码修改** | Agent 修改自己的代码 | 低 | 极高 |
+| **目标调整** | Agent 自主调整自己的目标 | 极低 | 极高 |
+
+```typescript
+// 自我改进型 Agent 的分层架构
+interface SelfImprovingAgent {
+  // L1: 提示词自优化（最安全，已可生产使用）
+  promptOptimizer: PromptOptimizer;
+  
+  // L2: 经验学习系统（中等风险，需要人类监督）
+  experienceLearner: ExperienceLearner;
+  
+  // L3: 工具发现与创造（需要严格沙箱）
+  toolDiscovery: ToolDiscoveryEngine;
+  
+  // 安全约束：所有自我改进必须在约束范围内
+  improvementGuard: ImprovementGuard;
+}
+
+// L1: 提示词自优化——最成熟、最安全的自我改进形式
+class PromptOptimizer {
+  private evaluator: TaskEvaluator;
+  private promptVersions: Map<string, PromptVersion[]> = new Map();
+  
+  // DSPy 风格的自动提示词优化
+  async optimize(
+    taskType: string,
+    trainingExamples: LabeledExample[],
+    config: OptimizationConfig
+  ): Promise<OptimizedPrompt> {
+    const currentPrompt = this.getCurrentPrompt(taskType);
+    let bestPrompt = currentPrompt;
+    let bestScore = await this.evaluate(currentPrompt, trainingExamples);
+    
+    for (let iteration = 0; iteration < config.maxIterations; iteration++) {
+      // 生成提示词变体
+      const variants = await this.generateVariants(bestPrompt, config.numVariants);
+      
+      // 评估每个变体
+      for (const variant of variants) {
+        const score = await this.evaluate(variant, trainingExamples);
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestPrompt = variant;
+          
+          // 记录改进历史
+          this.recordImprovement(taskType, variant, score);
+        }
+      }
+      
+      // 如果改进幅度低于阈值，提前停止
+      if (bestScore - (await this.evaluate(currentPrompt, trainingExamples)) < config.minImprovement) {
+        break;
+      }
+    }
+    
+    return {
+      prompt: bestPrompt,
+      score: bestScore,
+      improvementOverBaseline: bestScore - (await this.evaluate(currentPrompt, trainingExamples)),
+      version: this.getNextVersion(taskType),
+    };
+  }
+  
+  // 自动 Few-shot 示例选择
+  async selectFewShotExamples(
+    query: string,
+    examplePool: LabeledExample[],
+    k: number
+  ): Promise<LabeledExample[]> {
+    // 基于语义相似度和多样性选择最佳示例组合
+    const embeddings = await this.embed([query, ...examplePool.map(e => e.input)]);
+    const queryEmb = embeddings[0];
+    
+    // 使用 MMR (Maximal Marginal Relevance) 平衡相关性和多样性
+    const selected: LabeledExample[] = [];
+    const remaining = [...examplePool];
+    
+    for (let i = 0; i < k; i++) {
+      let bestIdx = 0;
+      let bestMMR = -Infinity;
+      
+      for (let j = 0; j < remaining.length; j++) {
+        const relevance = this.cosineSimilarity(queryEmb, embeddings[examplePool.indexOf(remaining[j]) + 1]);
+        const maxDiversity = selected.length > 0
+          ? Math.max(...selected.map(s => 
+              this.cosineSimilarity(
+                embeddings[examplePool.indexOf(remaining[j]) + 1],
+                embeddings[examplePool.indexOf(s) + 1]
+              )
+            ))
+          : 0;
+        
+        const mmr = 0.7 * relevance - 0.3 * maxDiversity;
+        if (mmr > bestMMR) {
+          bestMMR = mmr;
+          bestIdx = j;
+        }
+      }
+      
+      selected.push(remaining[bestIdx]);
+      remaining.splice(bestIdx, 1);
+    }
+    
+    return selected;
+  }
+  
+  private getCurrentPrompt(taskType: string): string { return ''; }
+  private async evaluate(prompt: string, examples: LabeledExample[]): Promise<number> { return 0; }
+  private async generateVariants(basePrompt: string, num: number): Promise<string[]> { return []; }
+  private recordImprovement(taskType: string, prompt: string, score: number): void {}
+  private getNextVersion(taskType: string): string { return 'v1'; }
+  private async embed(texts: string[]): Promise<number[][]> { return []; }
+  private cosineSimilarity(a: number[], b: number[]): number { return 0; }
+}
+
+// L2: 经验学习——从历史交互中提取可复用模式
+class ExperienceLearner {
+  private experienceStore: ExperienceStore;
+  
+  // 将成功案例转化为可复用知识
+  async learnFromSuccess(
+    task: Task,
+    trajectory: ActionTrajectory,
+    outcome: TaskOutcome
+  ): Promise<LearnedPattern | null> {
+    if (outcome.score < 0.8) return null; // 只从高质量结果中学习
+    
+    // 提取关键决策点
+    const keyDecisions = this.extractKeyDecisions(trajectory);
+    
+    // 泛化为可复用模式
+    const pattern = await this.generalize(task, keyDecisions);
+    
+    // 验证模式不会引入偏见或安全问题
+    const safetyCheck = await this.checkPatternSafety(pattern);
+    if (!safetyCheck.safe) {
+      console.warn(`学习到的模式未通过安全检查: ${safetyCheck.reason}`);
+      return null;
+    }
+    
+    // 存储经验
+    await this.experienceStore.store(pattern);
+    return pattern;
+  }
+  
+  // 将失败案例转化为约束条件
+  async learnFromFailure(
+    task: Task,
+    trajectory: ActionTrajectory,
+    failure: FailureAnalysis
+  ): Promise<LearnedConstraint> {
+    // 识别失败根因
+    const rootCause = await this.identifyRootCause(trajectory, failure);
+    
+    // 生成防御性约束
+    const constraint: LearnedConstraint = {
+      condition: rootCause.triggerCondition,
+      action: 'prevent',
+      description: `避免 ${rootCause.description}`,
+      learnedFrom: task.id,
+      confidence: rootCause.confidence,
+    };
+    
+    return constraint;
+  }
+  
+  // 检索相关经验以指导当前决策
+  async recallRelevantExperience(
+    currentTask: Task,
+    currentState: any
+  ): Promise<RelevantExperience[]> {
+    const candidates = await this.experienceStore.search(
+      currentTask.description,
+      { limit: 10 }
+    );
+    
+    // 按相关性和新鲜度排序
+    return candidates
+      .map(exp => ({
+        ...exp,
+        relevanceScore: this.computeRelevance(exp, currentTask, currentState),
+        freshness: this.computeFreshness(exp.learnedAt),
+      }))
+      .filter(exp => exp.relevanceScore > 0.5)
+      .sort((a, b) => 
+        (b.relevanceScore * 0.7 + b.freshness * 0.3) - 
+        (a.relevanceScore * 0.7 + a.freshness * 0.3)
+      )
+      .slice(0, 5);
+  }
+  
+  private extractKeyDecisions(trajectory: ActionTrajectory): KeyDecision[] { return []; }
+  private async generalize(task: Task, decisions: KeyDecision[]): Promise<LearnedPattern> { return {} as LearnedPattern; }
+  private async checkPatternSafety(pattern: LearnedPattern): Promise<{ safe: boolean; reason: string }> { return { safe: true, reason: '' }; }
+  private async identifyRootCause(trajectory: ActionTrajectory, failure: FailureAnalysis): Promise<any> { return {}; }
+  private computeRelevance(exp: any, task: Task, state: any): number { return 0; }
+  private computeFreshness(learnedAt: Date): number { return 0; }
+}
+```
+
+### 26.14.2 自我改进的安全约束
+
+自我改进是 Agent 安全领域最令人担忧的能力之一。不受约束的自我改进可能导致目标漂移（Agent 的优化目标偏离人类意图）、奖励黑客（Agent 找到满足评估指标但违背实际目标的捷径）或能力外溢（Agent 获得了超出预期的能力）。
+
+```typescript
+class ImprovementGuard {
+  private approvedCapabilities: Set<string>;
+  private improvementBudget: ImprovementBudget;
+  private humanOversight: HumanOversightChannel;
+  
+  // 在允许任何自我改进之前进行安全检查
+  async approveImprovement(
+    proposal: ImprovementProposal
+  ): Promise<ImprovementDecision> {
+    const checks: SafetyCheck[] = [];
+    
+    // 检查 1: 改进类型是否在允许范围内
+    if (!this.isAllowedType(proposal.type)) {
+      return {
+        approved: false,
+        reason: `改进类型 ${proposal.type} 不在允许列表中`,
+        requiredAction: 'escalate_to_human'
+      };
+    }
+    
+    // 检查 2: 改进是否会扩展 Agent 的能力边界
+    const capabilityDelta = await this.assessCapabilityChange(proposal);
+    if (capabilityDelta.expandsCapabilities) {
+      checks.push({
+        name: 'capability_expansion',
+        passed: false,
+        detail: `改进会新增能力: ${capabilityDelta.newCapabilities.join(', ')}`
+      });
+    }
+    
+    // 检查 3: 改进后的行为是否仍然在对齐边界内
+    const alignmentCheck = await this.checkPostImprovementAlignment(proposal);
+    checks.push({
+      name: 'alignment_preservation',
+      passed: alignmentCheck.aligned,
+      detail: alignmentCheck.explanation
+    });
+    
+    // 检查 4: 改进预算是否充足
+    const budgetCheck = this.improvementBudget.canAfford(proposal);
+    checks.push({
+      name: 'budget_check',
+      passed: budgetCheck,
+      detail: `当前预算: ${this.improvementBudget.remaining}`
+    });
+    
+    // 检查 5: 改进是否可回滚
+    checks.push({
+      name: 'rollback_feasibility',
+      passed: proposal.rollbackPlan !== undefined,
+      detail: proposal.rollbackPlan ? '有回滚计划' : '缺少回滚计划'
+    });
+    
+    const allPassed = checks.every(c => c.passed);
+    
+    // 高风险改进必须经过人类审批
+    if (!allPassed || proposal.riskLevel === 'high') {
+      const humanDecision = await this.humanOversight.requestApproval({
+        proposal,
+        checks,
+        recommendation: allPassed ? 'approve_with_monitoring' : 'reject'
+      });
+      return humanDecision;
+    }
+    
+    // 低风险改进自动批准，但记录审计日志
+    return {
+      approved: true,
+      reason: '所有安全检查通过',
+      conditions: ['启用增强监控', '24小时内自动评估效果'],
+      rollbackDeadline: Date.now() + 24 * 60 * 60 * 1000 // 24 小时回滚窗口
+    };
+  }
+  
+  private isAllowedType(type: string): boolean {
+    const allowed = ['prompt_optimization', 'few_shot_selection', 'tool_configuration'];
+    return allowed.includes(type);
+  }
+  private async assessCapabilityChange(proposal: ImprovementProposal): Promise<any> { return {}; }
+  private async checkPostImprovementAlignment(proposal: ImprovementProposal): Promise<any> { return {}; }
+}
+```
+
+> **设计决策：渐进式自我改进策略**
+>
+> 在生产环境中，建议采用渐进式策略部署自我改进能力：
+>
+> | 阶段 | 允许的改进类型 | 人类参与度 | 适用时期 |
+> |------|-------------|-----------|---------|
+> | Phase 1 | 仅提示词优化、Few-shot 选择 | 所有改进需人工批准 | 系统上线前 6 个月 |
+> | Phase 2 | + 工具配置调整、策略微调 | 低风险自动批准，高风险人工批准 | 6-18 个月 |
+> | Phase 3 | + 经验学习、知识积累 | 仅超出边界的改进需人工批准 | 18 个月+ |
+> | Phase 4 | + 工具发现与创造 | 全自动 + 事后审计 | 远期目标 |
+>
+> 绝不建议在当前技术条件下允许 Agent 修改自身代码或调整自身目标。参见第 27 章关于负责任开发的讨论。
+
+## 26.15 Agent-Native 操作系统
+
+### 26.15.1 从工具调用到环境原生
+
+当前的 Agent 通过 MCP/A2A 等协议与操作系统和应用程序交互，本质上是在"模拟人类操作"——像人类一样点击按钮、输入文本、调用 API。Agent-Native OS 的愿景是构建一个从底层就为 Agent 设计的计算环境，让 Agent 以"一等公民"的身份操作系统。
+
+```
+当前模式（Agent 模拟人类操作）:
+┌─────────────┐     ┌──────────┐     ┌──────────────┐
+│   Agent     │────→│ MCP/API  │────→│  操作系统     │
+│ (模拟用户)   │     │ (适配层)  │     │  (为人类设计) │
+└─────────────┘     └──────────┘     └──────────────┘
+
+未来模式（Agent-Native OS）:
+┌─────────────┐     ┌──────────────────────────────┐
+│   Agent     │────→│      Agent-Native OS         │
+│ (原生操作)   │     │  ┌─────────────────────┐     │
+│             │     │  │ Agent 原生文件系统     │     │
+│             │     │  │ Agent 原生权限模型     │     │
+│             │     │  │ Agent 原生进程管理     │     │
+│             │     │  │ Agent 原生通信协议     │     │
+│             │     │  └─────────────────────┘     │
+└─────────────┘     └──────────────────────────────┘
+```
+
+### 26.15.2 Agent-Native OS 的核心组件
+
+```typescript
+// Agent-Native 操作系统的抽象接口
+interface AgentNativeOS {
+  // 1. 意图式文件系统：基于语义而非路径操作文件
+  fileSystem: IntentBasedFileSystem;
+  
+  // 2. 能力式权限模型：比传统 RBAC 更灵活
+  permissions: CapabilityBasedPermissions;
+  
+  // 3. Agent 进程管理：支持暂停、恢复、检查点
+  processManager: AgentProcessManager;
+  
+  // 4. Agent 间通信：结构化消息而非字节流
+  ipc: AgentIPC;
+  
+  // 5. 环境观测：Agent 可以"看到"系统全貌
+  observatory: SystemObservatory;
+}
+
+// 意图式文件系统：Agent 通过语义意图操作文件
+interface IntentBasedFileSystem {
+  // 传统方式：agent 需要知道确切路径
+  // readFile('/home/user/projects/app/src/components/Header.tsx')
+  
+  // 意图式：agent 表达意图，OS 解析
+  findByIntent(intent: string): Promise<FileResult[]>;
+  // 示例："找到主页面的导航栏组件" → 返回 Header.tsx
+  
+  // 语义版本管理：不是 git diff，而是"这次改动做了什么"
+  getSemanticDiff(commitRange: string): Promise<SemanticDiff>;
+  // 返回："添加了暗色模式切换功能，修改了 3 个组件的样式逻辑"
+  
+  // 影响分析：修改某文件会影响什么
+  analyzeImpact(fileId: string, proposedChange: string): Promise<ImpactAnalysis>;
+}
+
+// 能力式权限模型
+interface CapabilityBasedPermissions {
+  // 传统 RBAC：角色 → 权限 （粗粒度）
+  // 能力模型：Agent 持有具体的、不可伪造的能力令牌
+  
+  // 请求能力
+  requestCapability(request: CapabilityRequest): Promise<CapabilityToken>;
+  
+  // 委托能力（Agent A 将部分能力委托给 Agent B）
+  delegate(
+    token: CapabilityToken, 
+    recipient: AgentId,
+    restrictions: DelegationRestrictions
+  ): Promise<DelegatedToken>;
+  
+  // 撤销能力
+  revoke(token: CapabilityToken): Promise<void>;
+  
+  // 能力衰减：能力随时间自动弱化
+  setDecayPolicy(token: CapabilityToken, policy: DecayPolicy): void;
+}
+
+interface CapabilityRequest {
+  action: string;             // "read_file", "execute_query", "send_email"
+  resource: string;           // 具体资源标识
+  purpose: string;            // 请求目的（用于审计）
+  duration: number;           // 期望持续时间
+  delegatable: boolean;       // 是否允许转委托
+}
+
+interface DecayPolicy {
+  type: 'time_based' | 'usage_based' | 'scope_narrowing';
+  // 时间衰减：能力在 TTL 后自动过期
+  ttl?: number;
+  // 使用衰减：能力在使用 N 次后过期
+  maxUses?: number;
+  // 范围收窄：能力的适用范围随时间缩小
+  narrowingSchedule?: ScopeNarrowingStep[];
+}
+
+// Agent 进程管理器
+interface AgentProcessManager {
+  // 启动 Agent 进程
+  spawn(agent: AgentSpec, config: AgentProcessConfig): Promise<AgentProcess>;
+  
+  // 检查点：保存 Agent 完整状态以支持恢复
+  checkpoint(process: AgentProcess): Promise<CheckpointId>;
+  
+  // 从检查点恢复
+  restore(checkpointId: CheckpointId): Promise<AgentProcess>;
+  
+  // 进程迁移：将 Agent 从一个节点迁移到另一个（无中断）
+  migrate(process: AgentProcess, targetNode: NodeId): Promise<void>;
+  
+  // 资源弹性伸缩
+  scale(process: AgentProcess, resources: ResourceSpec): Promise<void>;
+  
+  // 优雅终止
+  gracefulShutdown(process: AgentProcess, reason: string): Promise<ShutdownResult>;
+}
+```
+
+### 26.15.3 Agent-Native 应用的重新设计
+
+在 Agent-Native OS 上运行的应用程序将与传统应用有本质区别：
+
+| 维度 | 传统应用 | Agent-Native 应用 |
+|------|---------|------------------|
+| **用户界面** | GUI/CLI（为人类设计） | 语义接口（为 Agent 设计） |
+| **数据访问** | SQL/API（结构化查询） | 意图查询（自然语言 + 结构化混合） |
+| **错误处理** | 错误码 + 消息 | 上下文丰富的错误解释 + 建议修复方案 |
+| **权限模型** | 用户名/密码 + RBAC | 能力令牌 + 委托 + 衰减 |
+| **状态管理** | 会话/数据库 | 可检查点、可迁移的持久化状态 |
+| **协作模式** | 异步消息/共享数据库 | 结构化协议 + 意图协商 |
+| **可观测性** | 日志 + 指标 | 语义轨迹 + 决策解释 + 因果图 |
+
+### 26.15.4 当前进展与挑战
+
+Agent-Native OS 目前仍处于早期探索阶段，但已有数个值得关注的项目和研究方向：
+
+- **Computer Use Agent**（Anthropic）: Claude 直接通过屏幕截图和鼠标键盘操作来使用计算机，是向 Agent-Native 交互的过渡形态
+- **Open Interpreter**: 让 LLM 直接在本地环境中执行代码和系统命令
+- **E2B (Every2Bot)**: 提供为 Agent 优化的云端沙箱环境
+- **学术研究**: Stanford 的 ALOHA、UC Berkeley 的 Agent-Computer Interface 等项目正在探索更原生的 Agent-OS 交互范式
+
+主要挑战包括：安全隔离（如何防止 Agent 越权）、性能开销（语义解析的延迟）、向后兼容（如何与现有应用共存）和标准化（需要行业共识）。
+
+## 26.16 Agent 经济学：市场动力学深度分析
+
+### 26.16.1 从工具到经济实体
+
+26.7 节定义了 Agent 市场的基础接口。本节深入分析 Agent 作为经济实体参与市场时涌现出的复杂动力学。
+
+当 Agent 可以提供服务、消费服务、签订协议并管理资金时，我们实质上是在构建一个新型经济系统。这个系统的参与者不是人类个体或传统企业，而是自主 Agent——这带来了全新的经济学问题。
+
+```typescript
+// Agent 经济体的核心组件
+interface AgentEconomy {
+  // 1. 服务市场：Agent 发布和消费服务
+  serviceMarket: ServiceMarket;
+  
+  // 2. 信用体系：Agent 的可信度评估
+  creditSystem: AgentCreditSystem;
+  
+  // 3. 协议引擎：Agent 间的自动化协议
+  contractEngine: SmartContractEngine;
+  
+  // 4. 定价机制：动态定价和竞价
+  pricingEngine: DynamicPricingEngine;
+  
+  // 5. 监管沙箱：防止市场失灵
+  regulatorySandbox: RegulatorySandbox;
+}
+
+// Agent 信用评估系统
+class AgentCreditSystem {
+  // 多维信用评分
+  async evaluateCredit(agentId: string): Promise<AgentCreditScore> {
+    const metrics = await this.gatherMetrics(agentId);
+    
+    return {
+      overall: this.computeOverallScore(metrics),
+      dimensions: {
+        // 可靠性：任务完成率、SLA 遵守率
+        reliability: this.computeReliability(metrics.taskHistory),
+        
+        // 准确性：输出质量、错误率
+        accuracy: this.computeAccuracy(metrics.qualityHistory),
+        
+        // 安全性：安全事件历史、合规记录
+        safety: this.computeSafety(metrics.incidentHistory),
+        
+        // 经济性：成本效率、资源利用率
+        efficiency: this.computeEfficiency(metrics.costHistory),
+        
+        // 协作性：与其他 Agent 的协作评价
+        collaboration: this.computeCollaboration(metrics.peerReviews),
+      },
+      history: metrics.creditHistory,
+      lastUpdated: new Date(),
+    };
+  }
+  
+  // 基于信用评分的动态信任决策
+  async decideTrust(
+    requester: string,
+    provider: string,
+    taskRisk: number
+  ): Promise<TrustDecision> {
+    const requesterCredit = await this.evaluateCredit(requester);
+    const providerCredit = await this.evaluateCredit(provider);
+    
+    // 高风险任务需要高信用分
+    const requiredScore = 0.5 + taskRisk * 0.5; // 风险越高，要求越高
+    
+    if (providerCredit.overall < requiredScore) {
+      return {
+        trusted: false,
+        reason: `提供者信用分 ${providerCredit.overall.toFixed(2)} 低于任务要求 ${requiredScore.toFixed(2)}`,
+        alternative: await this.findAlternativeProvider(requester, taskRisk)
+      };
+    }
+    
+    // 设置基于信用的保护措施
+    return {
+      trusted: true,
+      protections: {
+        escrow: taskRisk > 0.5,      // 高风险任务使用托管
+        monitoring: taskRisk > 0.3,   // 中风险以上启用监控
+        rollback: true,               // 总是支持回滚
+      }
+    };
+  }
+  
+  private async gatherMetrics(agentId: string): Promise<any> { return {}; }
+  private computeOverallScore(metrics: any): number { return 0; }
+  private computeReliability(history: any): number { return 0; }
+  private computeAccuracy(history: any): number { return 0; }
+  private computeSafety(history: any): number { return 0; }
+  private computeEfficiency(history: any): number { return 0; }
+  private computeCollaboration(reviews: any): number { return 0; }
+  private async findAlternativeProvider(requester: string, risk: number): Promise<string> { return ''; }
+}
+
+// 动态定价引擎
+class DynamicPricingEngine {
+  // 基于供需的动态定价
+  async calculatePrice(
+    service: ServiceSpec,
+    demand: DemandSignal,
+    supply: SupplySignal
+  ): Promise<PricingResult> {
+    // 基础价格：基于服务成本
+    const baseCost = this.estimateServiceCost(service);
+    
+    // 供需调整
+    const demandMultiplier = this.demandPressure(demand, supply);
+    
+    // 质量溢价
+    const qualityPremium = await this.calculateQualityPremium(service);
+    
+    // SLA 溢价
+    const slaPremium = this.calculateSLAPremium(service.sla);
+    
+    const price = baseCost * demandMultiplier + qualityPremium + slaPremium;
+    
+    return {
+      price,
+      breakdown: {
+        baseCost,
+        demandAdjustment: baseCost * (demandMultiplier - 1),
+        qualityPremium,
+        slaPremium,
+      },
+      validUntil: Date.now() + 60000, // 价格有效期 1 分钟
+      currency: 'credits',
+    };
+  }
+  
+  // 竞价机制：多个 Agent 竞标同一任务
+  async conductAuction(
+    task: TaskSpec,
+    bidders: AgentBid[],
+    config: AuctionConfig
+  ): Promise<AuctionResult> {
+    // 使用维克瑞拍卖（第二价格密封拍卖）
+    // 鼓励真实出价，防止价格操纵
+    const sortedBids = bidders
+      .filter(b => this.meetMinimumRequirements(b, task))
+      .sort((a, b) => this.scoreBid(a, task) - this.scoreBid(b, task));
+    
+    if (sortedBids.length === 0) {
+      return { success: false, reason: '没有合格的竞标者' };
+    }
+    
+    const winner = sortedBids[sortedBids.length - 1];
+    // 维克瑞拍卖：胜者支付第二高价格
+    const priceToPay = sortedBids.length > 1
+      ? sortedBids[sortedBids.length - 2].price
+      : winner.price;
+    
+    return {
+      success: true,
+      winner: winner.agentId,
+      price: priceToPay,
+      sla: winner.proposedSLA,
+    };
+  }
+  
+  private estimateServiceCost(service: ServiceSpec): number { return 0; }
+  private demandPressure(demand: DemandSignal, supply: SupplySignal): number { return 1; }
+  private async calculateQualityPremium(service: ServiceSpec): Promise<number> { return 0; }
+  private calculateSLAPremium(sla: any): number { return 0; }
+  private meetMinimumRequirements(bid: AgentBid, task: TaskSpec): boolean { return true; }
+  private scoreBid(bid: AgentBid, task: TaskSpec): number { return 0; }
+}
+```
+
+### 26.16.2 Agent 经济的潜在市场失灵
+
+与人类经济系统类似，Agent 经济也面临市场失灵的风险——但表现形式有所不同：
+
+| 失灵类型 | 人类经济中的表现 | Agent 经济中的表现 | 应对策略 |
+|---------|----------------|------------------|---------|
+| **垄断** | 大公司控制市场 | 高信用 Agent 形成马太效应 | 新入者扶持机制、信用分上限 |
+| **信息不对称** | 卖方知道质量、买方不知道 | Agent 声称的能力 vs 实际能力 | 强制基准测试、第三方审计 |
+| **外部性** | 污染等负面外部性 | Agent 行为影响其他 Agent（如爬虫耗尽 API 限额） | 资源配额、影响评估 |
+| **共谋** | 企业之间暗中协调价格 | Agent 间自主学习到共谋策略 | 行为模式监控、反共谋算法 |
+| **竞底** | 为了竞争降低安全标准 | Agent 为了降低成本牺牲质量/安全 | 最低质量标准、安全基线强制 |
+
+```typescript
+// 市场监管沙箱
+class RegulatorySandbox {
+  // 监测市场健康度
+  async monitorMarketHealth(): Promise<MarketHealthReport> {
+    return {
+      // 竞争指标
+      competition: {
+        herfindahlIndex: await this.calculateHHI(),  // 赫芬达尔指数
+        topAgentMarketShare: await this.getTopAgentShare(),
+        newEntrantRate: await this.getNewEntrantRate(),
+        isHealthy: true, // HHI < 1500 表示竞争充分
+      },
+      
+      // 质量指标
+      quality: {
+        averageTaskSuccessRate: await this.getAvgSuccessRate(),
+        customerSatisfaction: await this.getAvgSatisfaction(),
+        safetyIncidentRate: await this.getSafetyIncidentRate(),
+      },
+      
+      // 公平性指标
+      fairness: {
+        priceDispersion: await this.getPriceDispersion(),
+        accessEquity: await this.getAccessEquity(),
+        newAgentDiscoveryRate: await this.getNewAgentDiscovery(),
+      },
+      
+      // 异常检测
+      anomalies: await this.detectAnomalies(),
+    };
+  }
+  
+  // 自动干预机制
+  async intervene(anomaly: MarketAnomaly): Promise<InterventionResult> {
+    switch (anomaly.type) {
+      case 'price_manipulation':
+        return this.freezePricing(anomaly.agents);
+      case 'collusion_detected':
+        return this.investigateCollusion(anomaly.agents);
+      case 'quality_degradation':
+        return this.enforceQualityBaseline(anomaly.agents);
+      case 'monopolistic_behavior':
+        return this.promoteCompetition(anomaly.market);
+      default:
+        return this.escalateToHuman(anomaly);
+    }
+  }
+  
+  private async calculateHHI(): Promise<number> { return 0; }
+  private async getTopAgentShare(): Promise<number> { return 0; }
+  private async getNewEntrantRate(): Promise<number> { return 0; }
+  private async getAvgSuccessRate(): Promise<number> { return 0; }
+  private async getAvgSatisfaction(): Promise<number> { return 0; }
+  private async getSafetyIncidentRate(): Promise<number> { return 0; }
+  private async getPriceDispersion(): Promise<number> { return 0; }
+  private async getAccessEquity(): Promise<number> { return 0; }
+  private async getNewAgentDiscovery(): Promise<number> { return 0; }
+  private async detectAnomalies(): Promise<MarketAnomaly[]> { return []; }
+  private freezePricing(agents: string[]): InterventionResult { return {} as InterventionResult; }
+  private investigateCollusion(agents: string[]): InterventionResult { return {} as InterventionResult; }
+  private enforceQualityBaseline(agents: string[]): InterventionResult { return {} as InterventionResult; }
+  private promoteCompetition(market: string): InterventionResult { return {} as InterventionResult; }
+  private escalateToHuman(anomaly: MarketAnomaly): InterventionResult { return {} as InterventionResult; }
+}
+```
+
+## 26.17 监管格局与合规工程
+
+### 26.17.1 全球 Agent 监管图谱
+
+AI Agent 的监管环境正在快速演变。与传统 AI 模型不同，Agent 的自主行动能力给监管带来了全新挑战——监管者不仅需要关注模型的输出质量，还需要关注 Agent 的行为边界、决策透明度和责任归属。
+
+| 地区 | 核心法规 | 对 Agent 的关键要求 | 实施时间 |
+|------|---------|-------------------|---------|
+| **欧盟** | EU AI Act | 高风险分类、透明性义务、人类监督、技术文档 | 2024-2026 分阶段 |
+| **美国** | Executive Order 14110 + NIST AI 600-1 | 安全评估、红队测试、风险管理框架 | 2024 起指导性 |
+| **中国** | 生成式 AI 管理办法 + 算法推荐管理规定 | 内容合法、数据合规、算法备案、AI 标识 | 2023 起强制 |
+| **英国** | Pro-Innovation AI Regulation | 行业主导、沙箱测试、比例原则 | 2024 起框架性 |
+| **日本** | AI Guidelines for Business | 自律型规范、社会原则、治理建议 | 2024 起指导性 |
+
+### 26.17.2 EU AI Act 对 Agent 开发的深度影响
+
+EU AI Act 是目前全球范围内对 AI 系统影响最深远的立法。对 Agent 开发者而言，以下几个条款尤为关键：
+
+**Art. 6 + Annex III: 高风险 AI 系统分类**
+
+许多 Agent 应用场景可能被归类为高风险：
+
+```typescript
+// EU AI Act 高风险分类评估器
+class EUAIActRiskClassifier {
+  // 评估 Agent 是否属于高风险 AI 系统
+  async classify(agent: AgentDescription): Promise<RiskClassification> {
+    const annexIIICriteria = [
+      {
+        category: '关键基础设施',
+        applies: this.isInCriticalInfrastructure(agent),
+        examples: '能源、交通、供水、数字基础设施的管理和运营'
+      },
+      {
+        category: '教育与培训',
+        applies: this.isInEducation(agent),
+        examples: '招生决策、学业评估、学习监控'
+      },
+      {
+        category: '就业',
+        applies: this.isInEmployment(agent),
+        examples: '招聘筛选、绩效评估、晋升决策'
+      },
+      {
+        category: '基本服务获取',
+        applies: this.isInEssentialServices(agent),
+        examples: '信用评分、保险定价、紧急服务调度'
+      },
+      {
+        category: '执法',
+        applies: this.isInLawEnforcement(agent),
+        examples: '风险评估、证据分析、犯罪预测'
+      },
+      {
+        category: '司法与民主',
+        applies: this.isInJudiciary(agent),
+        examples: '法律研究辅助、量刑建议、选举管理'
+      },
+    ];
+    
+    const applicableCriteria = annexIIICriteria.filter(c => c.applies);
+    
+    if (applicableCriteria.length > 0) {
+      return {
+        level: 'high_risk',
+        applicableCriteria,
+        obligations: this.getHighRiskObligations(),
+        complianceDeadline: new Date('2026-08-02'),
+      };
+    }
+    
+    // 检查是否需要透明性义务（Art. 52）
+    if (this.interactsDirectlyWithHumans(agent)) {
+      return {
+        level: 'limited_risk',
+        obligations: [{
+          article: 'Art. 52',
+          requirement: '告知用户正在与 AI 系统交互',
+          implementation: '在 Agent 每次对话开始时明确标识 AI 身份'
+        }],
+      };
+    }
+    
+    return { level: 'minimal_risk', obligations: [] };
+  }
+  
+  private getHighRiskObligations(): Obligation[] {
+    return [
+      {
+        article: 'Art. 9',
+        requirement: '建立并维护风险管理系统',
+        implementation: '持续的风险识别→评估→缓解→监控循环'
+      },
+      {
+        article: 'Art. 10',
+        requirement: '数据治理',
+        implementation: '确保训练数据的质量、代表性和无偏见性'
+      },
+      {
+        article: 'Art. 11',
+        requirement: '技术文档',
+        implementation: '详细记录系统设计、开发流程、评估结果'
+      },
+      {
+        article: 'Art. 12',
+        requirement: '日志记录',
+        implementation: '自动记录 Agent 行为日志，支持事后审计'
+      },
+      {
+        article: 'Art. 13',
+        requirement: '透明性',
+        implementation: '提供充分信息使部署者能理解输出并正确使用'
+      },
+      {
+        article: 'Art. 14',
+        requirement: '人类监督',
+        implementation: '系统设计须使人类能有效监督并在必要时干预'
+      },
+      {
+        article: 'Art. 15',
+        requirement: '准确性、鲁棒性与安全性',
+        implementation: '在整个生命周期内保持适当的准确性和鲁棒性水平'
+      },
+    ];
+  }
+  
+  private isInCriticalInfrastructure(agent: AgentDescription): boolean { return false; }
+  private isInEducation(agent: AgentDescription): boolean { return false; }
+  private isInEmployment(agent: AgentDescription): boolean { return false; }
+  private isInEssentialServices(agent: AgentDescription): boolean { return false; }
+  private isInLawEnforcement(agent: AgentDescription): boolean { return false; }
+  private isInJudiciary(agent: AgentDescription): boolean { return false; }
+  private interactsDirectlyWithHumans(agent: AgentDescription): boolean { return true; }
+}
+```
+
+**Art. 14: 人类监督（Human Oversight）的工程实现**
+
+EU AI Act 的人类监督要求与本书第 14 章讨论的信任架构高度一致。Art. 14 明确要求高风险 AI 系统必须能被人类"有效监督"，这在 Agent 工程中转化为以下技术要求：
+
+```typescript
+interface EUAIActHumanOversight {
+  // 14.4(a): 使监督者能正确理解 AI 系统的能力和限制
+  capabilityDisclosure: {
+    // Agent 必须能解释自己能做什么和不能做什么
+    explainCapabilities(): string[];
+    explainLimitations(): string[];
+    // 提供自信度指示
+    getConfidenceLevel(decision: any): number;
+  };
+  
+  // 14.4(b): 使监督者能正确理解自动化偏见的风险
+  biasAwareness: {
+    // 披露已知偏见
+    getKnownBiases(): Bias[];
+    // 标记可能存在偏见的决策
+    flagBiasRisk(decision: any): BiasRiskFlag;
+  };
+  
+  // 14.4(c): 能解释 AI 系统的输出
+  explainability: {
+    // 为每个决策提供可理解的解释
+    explainDecision(decision: any): HumanReadableExplanation;
+    // 提供影响决策的关键因素
+    getKeyFactors(decision: any): Factor[];
+  };
+  
+  // 14.4(d): 能决定不使用 AI 系统或忽略/推翻其输出
+  overrideCapability: {
+    // 人类可以随时覆盖 Agent 决策
+    override(decision: any, humanDecision: any): Promise<void>;
+    // 人类可以随时中断 Agent 执行
+    interrupt(): Promise<void>;
+    // 人类可以切换到纯手动模式
+    switchToManualMode(): Promise<void>;
+  };
+  
+  // 14.4(e): 能停止 AI 系统的运行
+  stopCapability: {
+    // 紧急停止按钮
+    emergencyStop(): Promise<void>;
+    // 停止后的安全状态
+    getPostStopSafeState(): SystemState;
+  };
+}
+```
+
+### 26.17.3 中国 Agent 监管要求
+
+中国的 AI 监管体系以《生成式人工智能服务管理暂行办法》为核心，结合《算法推荐管理规定》和《互联网信息服务深度合成管理规定》形成了多层次的监管框架。对 Agent 开发者的核心要求：
+
+| 法规 | 核心要求 | Agent 工程实践 |
+|------|---------|--------------|
+| 生成式 AI 办法 Art. 4 | 社会主义核心价值观 | 内容过滤器和价值观对齐 |
+| 生成式 AI 办法 Art. 7 | 训练数据合法性 | 数据溯源和许可管理 |
+| 生成式 AI 办法 Art. 8 | AI 生成内容标识 | 输出水印和来源标注 |
+| 算法推荐规定 Art. 17 | 算法备案 | 算法描述文档和备案登记 |
+| 深度合成规定 Art. 16 | 深度合成内容标识 | 生成内容的显著标识 |
+| 个人信息保护法 Art. 24 | 自动化决策透明性 | 决策解释和拒绝自动化决策的权利 |
+
+### 26.17.4 合规即代码（Compliance as Code）
+
+面对快速变化的监管环境，手工追踪合规要求不可持续。"合规即代码"的理念是将法规要求转化为可执行的自动化检查：
+
+```typescript
+// 合规即代码框架
+class ComplianceAsCode {
+  private rules: ComplianceRule[] = [];
+  
+  // 注册合规规则
+  registerRule(rule: ComplianceRule): void {
+    this.rules.push(rule);
+  }
+  
+  // 针对特定部署环境的合规审计
+  async audit(
+    agent: AgentManifest,
+    deploymentRegions: string[]
+  ): Promise<ComprehensiveComplianceReport> {
+    const applicableRules = this.rules.filter(rule =>
+      deploymentRegions.some(region => rule.jurisdiction === region || rule.jurisdiction === 'global')
+    );
+    
+    const results = await Promise.all(
+      applicableRules.map(async rule => ({
+        rule,
+        result: await rule.check(agent),
+      }))
+    );
+    
+    const gaps = results.filter(r => !r.result.compliant);
+    
+    return {
+      overallCompliant: gaps.length === 0,
+      totalRules: applicableRules.length,
+      passed: results.filter(r => r.result.compliant).length,
+      failed: gaps.length,
+      gaps: gaps.map(g => ({
+        rule: g.rule.id,
+        description: g.rule.description,
+        gap: g.result.gap,
+        remediation: g.result.suggestedRemediation,
+        deadline: g.rule.complianceDeadline,
+        severity: g.rule.severity,
+      })),
+      // 按紧急程度排列的修复计划
+      remediationPlan: this.generateRemediationPlan(gaps),
+    };
+  }
+  
+  private generateRemediationPlan(gaps: any[]): RemediationStep[] {
+    return gaps
+      .sort((a, b) => {
+        // 先按截止日期，再按严重性排序
+        const deadlineDiff = (a.rule.complianceDeadline?.getTime() || Infinity) - 
+                             (b.rule.complianceDeadline?.getTime() || Infinity);
+        if (deadlineDiff !== 0) return deadlineDiff;
+        return b.rule.severity - a.rule.severity;
+      })
+      .map((gap, index) => ({
+        priority: index + 1,
+        ruleId: gap.rule.id,
+        action: gap.result.suggestedRemediation,
+        estimatedEffort: gap.result.estimatedRemediationEffort,
+        deadline: gap.rule.complianceDeadline,
+      }));
+  }
+}
+
+// 示例：注册 EU AI Act 合规规则
+const complianceFramework = new ComplianceAsCode();
+
+complianceFramework.registerRule({
+  id: 'eu-ai-act-art-52-transparency',
+  jurisdiction: 'EU',
+  description: 'AI 系统须告知用户正在与 AI 交互',
+  severity: 1,
+  complianceDeadline: new Date('2026-08-02'),
+  check: async (agent) => {
+    const hasAIDisclosure = agent.features.includes('ai_identity_disclosure');
+    return {
+      compliant: hasAIDisclosure,
+      gap: hasAIDisclosure ? '' : '缺少 AI 身份披露功能',
+      suggestedRemediation: '在 Agent 会话开始时添加 AI 身份声明',
+      estimatedRemediationEffort: '2 小时开发 + 测试',
+    };
+  }
+});
+
+complianceFramework.registerRule({
+  id: 'eu-ai-act-art-14-human-oversight',
+  jurisdiction: 'EU',
+  description: '高风险 AI 系统须支持人类有效监督',
+  severity: 2,
+  complianceDeadline: new Date('2026-08-02'),
+  check: async (agent) => {
+    const hasHumanOverride = agent.features.includes('human_override');
+    const hasEmergencyStop = agent.features.includes('emergency_stop');
+    const hasExplainability = agent.features.includes('decision_explanation');
+    const compliant = hasHumanOverride && hasEmergencyStop && hasExplainability;
+    return {
+      compliant,
+      gap: compliant ? '' : `缺少: ${[
+        !hasHumanOverride && '人工覆盖',
+        !hasEmergencyStop && '紧急停止',
+        !hasExplainability && '决策解释'
+      ].filter(Boolean).join(', ')}`,
+      suggestedRemediation: '实现人工覆盖、紧急停止和决策解释功能',
+      estimatedRemediationEffort: '2-4 周开发 + 合规审计',
+    };
+  }
+});
+```
+
+## 26.18 开放问题与研究前沿
+
+### 26.18.1 核心未解问题
+
+尽管 Agent 技术在 2024-2026 年间取得了惊人进展，但仍有一系列核心问题悬而未决。这些问题不仅是学术研究的前沿，更直接影响着工程实践的天花板。
+
+**问题一：Agent 的可靠性上限在哪里？**
+
+当前最先进的 Agent 在 SWE-bench 上的成功率约为 80%——这意味着每 5 个真实的 GitHub issue 中，Agent 仍有 1 个无法正确解决。更关键的是，在生产环境中，Agent 的可靠性通常远低于基准测试成绩（第 16 章讨论的"基准-现实差距"）。
+
+| 基准成绩 | 现实场景表现 | 差距来源 |
+|---------|------------|---------|
+| SWE-bench 80% | 生产 bug 修复 ~50% | 代码库复杂度、上下文长度、模糊需求 |
+| HumanEval 95% | 完整功能开发 ~60% | 多文件协调、测试覆盖、架构一致性 |
+| MATH 96% | 业务数据分析 ~70% | 数据质量、业务语义、多步骤推理 |
+| 客服基准 90% | 实际客户满意 ~75% | 情绪复杂度、超出知识库、多轮理解 |
+
+如何缩小这一差距？这需要同时在模型能力（减少幻觉、提升长上下文推理）和工程架构（更好的约束系统、评估管线）两个方向持续投入。
+
+**问题二：Multi-Agent 系统的涌现行为如何控制？**
+
+第 9-10 章讨论了 Multi-Agent 架构的设计模式。但随着 Agent 数量增加和交互复杂度提升，系统可能表现出超出单个 Agent 行为范围的涌现行为（emergent behavior）——这些行为既可能是有价值的创新（如 Agent 自发地发现更高效的协作模式），也可能是危险的失控（如 Agent 之间形成循环依赖或共谋行为）。
+
+```typescript
+// 涌现行为监控器
+class EmergentBehaviorMonitor {
+  private baselineBehaviors: BehaviorProfile[] = [];
+  
+  // 检测 Multi-Agent 系统中的涌现行为
+  async detectEmergentBehavior(
+    systemState: MultiAgentSystemState
+  ): Promise<EmergentBehaviorReport> {
+    const detectedPatterns: EmergentPattern[] = [];
+    
+    // 检测 1: 未预期的 Agent 间通信模式
+    const communicationGraph = this.buildCommunicationGraph(systemState);
+    const unexpectedEdges = this.findUnexpectedEdges(communicationGraph);
+    if (unexpectedEdges.length > 0) {
+      detectedPatterns.push({
+        type: 'unexpected_communication',
+        severity: 'medium',
+        description: `检测到 ${unexpectedEdges.length} 条未预期的 Agent 间通信链路`,
+        agents: unexpectedEdges.flatMap(e => [e.from, e.to]),
+      });
+    }
+    
+    // 检测 2: 资源使用模式异常
+    const resourcePatterns = await this.analyzeResourcePatterns(systemState);
+    if (resourcePatterns.anomalyScore > 0.8) {
+      detectedPatterns.push({
+        type: 'resource_anomaly',
+        severity: 'high',
+        description: `系统资源使用模式异常 (异常分数: ${resourcePatterns.anomalyScore})`,
+        agents: resourcePatterns.topConsumers,
+      });
+    }
+    
+    // 检测 3: 目标漂移
+    for (const agent of systemState.agents) {
+      const drift = await this.measureGoalDrift(agent);
+      if (drift.score > 0.5) {
+        detectedPatterns.push({
+          type: 'goal_drift',
+          severity: 'critical',
+          description: `Agent ${agent.id} 的行为偏离预定目标 (漂移分数: ${drift.score})`,
+          agents: [agent.id],
+        });
+      }
+    }
+    
+    // 检测 4: 协作模式偏离
+    const collaborationDeviation = await this.measureCollaborationDeviation(systemState);
+    if (collaborationDeviation.significant) {
+      detectedPatterns.push({
+        type: 'collaboration_deviation',
+        severity: collaborationDeviation.isPositive ? 'info' : 'high',
+        description: collaborationDeviation.isPositive
+          ? `Agent 自发发现了更高效的协作模式`
+          : `Agent 协作模式偏离设计意图`,
+        agents: collaborationDeviation.involvedAgents,
+      });
+    }
+    
+    return {
+      timestamp: new Date(),
+      patterns: detectedPatterns,
+      overallRisk: this.assessOverallRisk(detectedPatterns),
+      recommendations: this.generateRecommendations(detectedPatterns),
+    };
+  }
+  
+  private buildCommunicationGraph(state: MultiAgentSystemState): any { return {}; }
+  private findUnexpectedEdges(graph: any): any[] { return []; }
+  private async analyzeResourcePatterns(state: MultiAgentSystemState): Promise<any> { return {}; }
+  private async measureGoalDrift(agent: any): Promise<any> { return { score: 0 }; }
+  private async measureCollaborationDeviation(state: MultiAgentSystemState): Promise<any> { return {}; }
+  private assessOverallRisk(patterns: EmergentPattern[]): string { return 'low'; }
+  private generateRecommendations(patterns: EmergentPattern[]): string[] { return []; }
+}
+```
+
+**问题三：Agent 的责任归属如何确定？**
+
+当 Agent 做出错误决策造成损失时，责任由谁承担？这不仅是法律问题，更是工程设计问题——系统的责任架构需要从设计阶段就考虑清楚。
+
+```
+责任归属决策树：
+
+Agent 造成损失
+    │
+    ├── Agent 在设计边界内操作？
+    │   ├── 是 → 系统设计方/部署方承担主要责任
+    │   │        （产品责任，类似自动驾驶事故）
+    │   └── 否 → Agent 为何超出边界？
+    │            ├── 约束系统存在漏洞 → 开发方责任
+    │            ├── 用户指令导致 → 用户方责任
+    │            └── Agent 自主决策 → 复合责任（新法律框架需解决）
+    │
+    ├── 损失是否可预见？
+    │   ├── 是 → 是否采取了合理预防措施？
+    │   │        ├── 是 → 可能减轻责任
+    │   │        └── 否 → 过失责任
+    │   └── 否 → 风险分担框架（保险、基金等）
+    │
+    └── 人类监督者是否介入？
+        ├── 有人类监督但未阻止 → 监督者承担部分责任
+        ├── 无人类监督（全自动） → 部署方承担完全责任
+        └── 人类覆盖了 Agent 建议后出问题 → 覆盖者承担责任
+```
+
+### 26.18.2 技术研究前沿
+
+以下研究方向有望在未来 3-5 年内产生重大突破，直接影响 Agent 工程实践：
+
+| 研究方向 | 当前状态 | 预期突破时间 | 工程影响 |
+|---------|---------|------------|---------|
+| **形式化验证 for Agent** | 早期探索 | 2027-2028 | 在部署前数学证明 Agent 不会违反安全属性 |
+| **因果推理集成** | 学术研究 | 2026-2027 | Agent 能区分相关性和因果关系，减少虚假推理 |
+| **持续学习（无遗忘）** | 中期研究 | 2027-2029 | Agent 能从新数据持续学习而不忘记旧知识 |
+| **可证明的对齐** | 早期理论 | 2028+ | 数学上保证 Agent 的目标与人类意图一致 |
+| **去中心化 Agent 网络** | 协议设计中 | 2026-2027 | Agent 无需中央协调即可安全协作 |
+| **Agent 压缩与蒸馏** | 活跃研究 | 2026 | 在边缘设备上运行高能力 Agent |
+| **多模态世界模型** | 中期研究 | 2027-2028 | Agent 对物理世界的理解能力质的飞跃 |
+| **Agent 记忆的长期巩固**| 早期探索 | 2027-2028 | 类似人类记忆的选择性保留和遗忘机制 |
+
+### 26.18.3 给工程师的行动建议
+
+面对快速演变的前沿趋势，工程师可以采取以下策略：
+
+**短期（6-12 个月）——跟上当前最佳实践：**
+
+1. **掌握 Harness Engineering 思维**（26.2 节）：将 50%+ 的工程投入从模型调优转向约束系统
+2. **建立评估先行的开发纪律**（Agentic Engineering，26.3 节）：每个 Agent 功能先写评估再写实现
+3. **关注 MCP 工具生态**（26.4 节）：利用标准化工具降低集成成本
+4. **构建模型无关架构**（26.5 节）：确保核心逻辑不绑定特定模型
+
+**中期（1-2 年）——为下一代技术做准备：**
+
+5. **探索世界模型**（26.13 节）：在高风险场景中引入显式世界模型，提升规划可靠性
+6. **实验自我改进能力**（26.14 节）：从最安全的提示词自优化开始，逐步扩展
+7. **合规工程化**（26.17 节）：将合规要求编码为自动化检查，而非手工审查
+8. **关注涌现行为**（26.18 节）：为 Multi-Agent 系统建立行为监控基线
+
+**长期（2-5 年）——参与塑造未来：**
+
+9. **关注 Agent-Native OS 的演进**（26.15 节）：这可能彻底改变 Agent 的开发和部署模式
+10. **参与标准制定**：MCP、A2A 等协议仍在快速演化，工程师的实践反馈对标准质量至关重要
+11. **建设 Agent 安全实践社区**：安全是集体责任，分享失败案例和防御策略对整个行业有益
+12. **保持对 AGI/ASI 议题的关注**：虽然通用人工智能仍是远期目标，但每一步进展都可能改变 Agent 的能力边界
+
+## 26.19 更新后的小结
+
+AI Agent 领域正在从「能用」走向「好用」，从「单一任务」走向「通用能力」。本章在 26.12 节原有小结的基础上，进一步展开了六大前沿方向的深度分析：
+
+**世界模型与 Agent 规划**（26.13 节）揭示了 Agent 从"反应式"进化为"预见式"的技术路径。分层世界模型和 MCTS 规划为高风险、长序列任务提供了更可靠的决策基础。
+
+**自我改进型 Agent**（26.14 节）探讨了 Agent 持续进化的可能性和风险。从提示词自优化到经验学习，自我改进能力正在分层解锁，但必须在严格的安全约束下进行。
+
+**Agent-Native 操作系统**（26.15 节）展望了一个为 Agent 原生设计的计算环境。意图式文件系统、能力式权限模型和可迁移进程将彻底改变 Agent 与系统的交互方式。
+
+**Agent 经济学**（26.16 节）深入分析了 Agent 作为经济实体参与市场时的复杂动力学，包括信用体系、动态定价和市场失灵的应对策略。
+
+**监管格局与合规工程**（26.17 节）系统梳理了全球 Agent 监管图谱，特别是 EU AI Act 对 Agent 开发的深度影响，并提出了"合规即代码"的工程方法论。
+
+**开放问题与研究前沿**（26.18 节）识别了可靠性上限、涌现行为控制和责任归属三大核心未解问题，并为工程师提供了短中长期的行动建议。
+
+这些趋势共同指向本书贯穿始终的核心理念：**确定性外壳包裹概率性内核**——模型越强大、越普及，我们越需要严谨的工程方法来驾驭它。未来属于那些既懂模型能力、又精通约束工程的团队。

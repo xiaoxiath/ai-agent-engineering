@@ -338,8 +338,8 @@ class AgentCapabilityAssessor {
 | GPT-5 | 1M | ✅ 原生多模态推理（文本/图像/音频） | ✅ 并行调用+自适应推理 | ⭐⭐⭐⭐ | 2025-08 |
 | o3 | 200K | ✅ 文本/图像（视觉推理） | ✅ 并行调用+全工具访问 | ⭐⭐⭐⭐ | 2025-04 |
 | o4-mini | 200K | ✅ 文本/图像 | ✅ 并行调用 | ⭐⭐⭐ | 2025-04 |
-| Claude Opus 4.6 | 200K（1M beta） | ✅ 文本/图像/PDF | ✅ 并行+MCP+Computer Use+Extended Thinking | ⭐⭐⭐⭐⭐ | 2026-02 |
-| Claude Sonnet 4.6 | 200K（1M beta） | ✅ 文本/图像/PDF | ✅ 并行+MCP+Computer Use+Adaptive Thinking | ⭐⭐⭐⭐⭐ | 2026-02 |
+| Claude Opus 4 | 200K（1M beta） | ✅ 文本/图像/PDF | ✅ 并行+MCP+Computer Use+Extended Thinking | ⭐⭐⭐⭐⭐ | 2026-02 |
+| Claude Sonnet 4 | 200K（1M beta） | ✅ 文本/图像/PDF | ✅ 并行+MCP+Computer Use+Adaptive Thinking | ⭐⭐⭐⭐⭐ | 2026-02 |
 | Gemini 3 Pro | 1M | ✅ 原生多模态（文本/图像/音频/视频） | ✅ 原生调用+Deep Think | ⭐⭐⭐⭐⭐ | 2026-02 |
 | DeepSeek-V3.2 | 164K | ✅ 文本 | ✅ Thinking in Tool-Use | ⭐⭐⭐⭐ | 2025-12 |
 | DeepSeek-R1 | 128K | ✅ 文本 | ✅ 工具调用 | ⭐⭐⭐ | 2025-01 |
@@ -351,7 +351,7 @@ class AgentCapabilityAssessor {
 - 原生工具使用能力（不再需要 hack），MCP 协议成为行业标准
 - 结构化输出保证（JSON Schema 约束）
 - 推理能力质的飞跃（o3/o4-mini 推理链[[OpenAI o3 and o4-mini Announcement]](https://openai.com/index/introducing-o3-and-o4-mini/)、DeepSeek-R1 开源推理模型、Gemini 3 Pro Deep Think 模式）
-- Claude 4.6 系列原生支持 Agent 编排、Computer Use 与 Extended Thinking，成为 Agent 开发首选模型之一[[Anthropic Claude Opus 4.6]](https://www.anthropic.com/claude/opus)[[Anthropic Claude Sonnet 4.6]](https://www.anthropic.com/news/claude-sonnet-4-6)
+- Claude 4 系列原生支持 Agent 编排、Computer Use 与 Extended Thinking，成为 Agent 开发首选模型之一[[Anthropic Claude Opus 4]](https://www.anthropic.com/claude/opus)[[Anthropic Claude Sonnet 4]](https://www.anthropic.com/news/claude-sonnet-4)
 - 开源模型崛起：DeepSeek-V3.2 采用 MoE 架构（685B 参数，37B 激活）在推理效率上实现突破[[DeepSeek-V3.2 Release]](https://api-docs.deepseek.com/news/news251201)；Llama 4 系列同样采用 MoE 架构，Scout 以 109B 参数实现 10M 上下文[[Meta Llama 4 Announcement]](https://ai.meta.com/blog/llama-4-multimodal-intelligence/)
 - Agent 基准测试大幅提升：SWE-bench Verified 最高准确率达到约 79.2%（Sonar Foundation Agent）[[Sonar Claims Top Spot on SWE-bench]](https://www.sonarsource.com/company/press-releases/sonar-claims-top-spot-on-swe-bench-leaderboard/)，WebArena 最高达到约 71.6%（OpAgent），标志着 AI Agent 在真实软件工程和网页操作任务上已接近实用水平
 
@@ -424,9 +424,74 @@ class AgentCapabilityAssessor {
 | 十：案例研究 | 23-25 | 编码助手、客服、数据分析 |
 | 十一：未来展望 | 26-27 | 前沿趋势、负责任开发 |
 
+
+## 1.5 Agentic Coding：Agent 最成功的落地场景
+
+### 1.5.1 从 Vibe Coding 到 Agentic Engineering
+
+2025-2026 年，AI Agent 最成功、最广泛的落地场景并非企业客服或数据分析，而是**软件开发本身**。根据 Anthropic 2026 年《Agentic Coding Trends Report》，92% 的美国开发者每天使用 AI 编码工具，67% 的全球开发者将其纳入日常工作流。
+
+Andrej Karpathy 在 2025 年提出的 "Vibe Coding" 概念——开发者描述意图，AI Agent 完成实现——已从实验阶段进入基础设施级别。2026 年，业界用 **Agentic Engineering** 来描述这一成熟形态：
+
+| 阶段 | 特征 | 代表工具 | 人的角色 |
+|------|------|---------|---------|
+| L1 自动补全 | 行级/块级代码补全 | GitHub Copilot (2022) | 编写者 |
+| L2 对话辅助 | 对话式代码生成和解释 | ChatGPT / Claude (2023) | 指导者 |
+| L3 内联编辑 | Agent 直接编辑文件，理解项目上下文 | Cursor / Windsurf (2024) | 审查者 |
+| L4 自主 Agent | 端到端完成任务（修 bug、实现功能、写测试） | Claude Code / Codex (2025) | 架构师 |
+| L5 Agent 团队 | 多个 Agent 协同——规划、实现、测试、部署 | Multi-agent workflows (2026) | 产品经理 |
+
+### 1.5.2 Agentic Coding 的技术栈
+
+```typescript
+// 2026 年 Agentic Coding 的核心工具栈
+interface AgenticCodingStack {
+  // 终端优先的 Agent
+  terminalAgents: {
+    claudeCode: {
+      approach: 'Bash + Read + Write + Browser';
+      keyInnovation: '极少工具，最大自由度';
+      model: 'Claude Sonnet 4';
+    };
+    openaiCodex: {
+      approach: 'sandboxed execution environment';
+      keyInnovation: '异步长时间任务';
+      model: 'codex-1 (o3 variant)';
+    };
+  };
+  
+  // IDE 集成 Agent
+  ideAgents: {
+    cursor: {
+      approach: 'IDE 深度集成 + 多模型路由';
+      keyInnovation: 'Agent Mode + Background Agent';
+    };
+    windsurf: {
+      approach: 'Cascade 多步编辑流';
+      keyInnovation: 'Memories 跨会话上下文';
+    };
+  };
+  
+  // Skill 与知识管理
+  skills: {
+    format: 'SKILL.md (Markdown)';
+    discovery: '文件系统遍历 + 语义匹配';
+    examples: ['coding-standards', 'deployment-procedure', 'review-checklist'];
+  };
+}
+```
+
+### 1.5.3 对本书的启示
+
+Agentic Coding 的成功证明了本书核心架构理念的正确性：
+
+1. **Context Engineering > Prompt Engineering**（见第 5 章）：Claude Code 的成功不在于提示词技巧，而在于精心设计的上下文管理——项目文件、Git 历史、终端输出都是上下文的一部分
+2. **少量通用工具 > 大量专用工具**（见第 6 章和第 20 章）：Claude Code 仅用 Bash + Read + Write + Browser 四个工具就实现了顶级性能
+3. **Skill（知识）+ Tool（能力）的分层架构**（见第 20 章）：`.claude/commands/` 目录下的自定义 Slash Command 本质上就是 Skill
+
 ---
 
-## 1.5 本章小结
+## 1.6 本章小结
 
 本章建立了全书的核心概念框架：
 

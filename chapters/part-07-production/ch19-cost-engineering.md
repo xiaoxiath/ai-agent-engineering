@@ -91,7 +91,7 @@ const MODEL_PRICING_2026: readonly ModelPricing[] = [
 
   // === Anthropic 系列 ===
   {
-    modelId: "claude-opus-4.6",
+    modelId: "claude-opus-4",
     provider: "anthropic",
     inputPricePerMillion: 15.00,
     outputPricePerMillion: 75.00,
@@ -107,7 +107,7 @@ const MODEL_PRICING_2026: readonly ModelPricing[] = [
     ],
   },
   {
-    modelId: "claude-sonnet-4.6",
+    modelId: "claude-sonnet-4",
     provider: "anthropic",
     inputPricePerMillion: 3.00,
     outputPricePerMillion: 15.00,
@@ -187,7 +187,6 @@ const MODEL_PRICING_2026: readonly ModelPricing[] = [
     tier: "economy",
     capabilities: ["function_calling", "json_mode", "fim"],
   },
-  {
   {
     modelId: "deepseek-v3.2",
     provider: "deepseek",
@@ -995,7 +994,7 @@ class CostBreakdownAnalyzer {
     const flagshipCost = breakdowns.reduce((s, b) => {
       const fc = Object.entries(b.llmCostByModel)
         .filter(([m]) =>
-          m === "gpt-4o" || m === "claude-opus-4.6" || m === "claude-sonnet-4.6" || m === "gemini-3-pro"
+          m === "gpt-4o" || m === "claude-opus-4" || m === "claude-sonnet-4" || m === "gemini-3-pro"
         )
         .reduce((ss, [, c]) => ss + c, 0);
       return s + fc;
@@ -1601,7 +1600,7 @@ class ReliabilityEconomicsEngine {
 
 ## 19.3 智能模型路由：任务-模型最优匹配
 
-并非所有 Agent 任务都需要最强大（也最昂贵）的模型。简单的格式转换可以用 GPT-4o-mini 完成；复杂的多步推理才需要 Claude Sonnet 4.6 或 GPT-4o。**智能模型路由**的目标是根据任务的复杂度、质量要求和成本约束，自动选择最具性价比的模型。
+并非所有 Agent 任务都需要最强大（也最昂贵）的模型。简单的格式转换可以用 GPT-4o-mini 完成；复杂的多步推理才需要 Claude Sonnet 4 或 GPT-4o。**智能模型路由**的目标是根据任务的复杂度、质量要求和成本约束，自动选择最具性价比的模型。
 
 ### 19.3.1 任务复杂度分类器
 
@@ -1707,8 +1706,8 @@ class TaskComplexityClassifier {
     const modelSuggestions: Record<ComplexityLevel, string[]> = {
       simple: ['gpt-4o-mini', 'gemini-3-flash', 'deepseek-v3'],
       moderate: ['gpt-4o-mini', 'claude-haiku-3.5', 'gemini-3-flash'],
-      complex: ['gpt-4o', 'claude-sonnet-4.6', 'gemini-3-pro'],
-      expert: ['claude-opus-4.6', 'gpt-4o', 'claude-sonnet-4.6', 'gemini-3-pro'],
+      complex: ['gpt-4o', 'claude-sonnet-4', 'gemini-3-pro'],
+      expert: ['claude-opus-4', 'gpt-4o', 'claude-sonnet-4', 'gemini-3-pro'],
     };
 
     return {
@@ -2636,7 +2635,7 @@ class PromptCacheManager extends EventEmitter {
     }
 
     // 根据 Anthropic 定价预估月度节省
-    // Claude Sonnet 4.6 输入价格 $3/MTok，缓存命中 $0.3/MTok
+    // Claude Sonnet 4 输入价格 $3/MTok，缓存命中 $0.3/MTok
     const requestsPerDay = 10000; // 假设
     const daysPerMonth = 30;
     const monthlyRequests = requestsPerDay * daysPerMonth;
@@ -4236,7 +4235,7 @@ class PromptCompressor {
  *   - 系统提示词：3,000 tokens（角色定义 + 行为准则 + 知识库摘要）
  *   - 平均用户输入：200 tokens
  *   - 平均对话历史：2,000 tokens（约 8 轮对话）
- *   - 模型：Claude Sonnet 4.6（$3/MTok 输入）
+ *   - 模型：Claude Sonnet 4（$3/MTok 输入）
  *
  * 无优化月度成本：
  *   (3000 + 200 + 2000) × 50,000 × 30 × $3/1,000,000 = $23,400/月
@@ -5101,7 +5100,7 @@ class BatchRequestManager extends EventEmitter {
 
   private calculateBatchCost(result: ProviderBatchResponseItem): number {
     if (!result.usage) return 0;
-    // 以 Claude Sonnet 4.6 批处理价格计算
+    // 以 Claude Sonnet 4 批处理价格计算
     // 批处理输入: $1.5/MTok, 批处理输出: $7.5/MTok（均为实时价格的 50%）
     const inputCost = (result.usage.input_tokens * 1.5) / 1_000_000;
     const outputCost = (result.usage.output_tokens * 7.5) / 1_000_000;
@@ -5393,7 +5392,7 @@ class AsyncCostOptimizer extends EventEmitter {
       (s, m) => s + tokenEstimator.estimateText(m.content),
       0
     );
-    // 以 Claude Sonnet 4.6 价格估算
+    // 以 Claude Sonnet 4 价格估算
     const realtimeCost =
       (estimatedTokens * 3 + request.params.max_tokens * 15) / 1_000_000;
 
@@ -5579,7 +5578,7 @@ class PriorityClassifier {
  *
  * 场景：企业 Agent 平台
  *   - 日请求量：200,000
- *   - 模型：Claude Sonnet 4.6（$3/MTok 输入，$15/MTok 输出）
+ *   - 模型：Claude Sonnet 4（$3/MTok 输入，$15/MTok 输出）
  *   - 平均输入 tokens：1,500
  *   - 平均输出 tokens：500
  *   - 批处理折扣：50%
@@ -5667,8 +5666,8 @@ const projection: CostProjection = {
   distribution: { urgent: 0.4, normal: 0.35, background: 0.25 },
   avgInputTokens: 1500,
   avgOutputTokens: 500,
-  inputPricePerMTok: 3.0,    // Claude Sonnet 4.6 输入
-  outputPricePerMTok: 15.0,  // Claude Sonnet 4.6 输出
+  inputPricePerMTok: 3.0,    // Claude Sonnet 4 输入
+  outputPricePerMTok: 15.0,  // Claude Sonnet 4 输出
   batchDiscount: 0.5,
 };
 
@@ -5707,6 +5706,8 @@ const projection: CostProjection = {
 在前面的章节中，我们构建了一套完整的成本优化工具链——从模型路由（19.3）到 Prompt 缓存（19.4）再到批处理调度（19.5）。但正如第 17 章（可观测性工程）中强调的那样："无法度量的东西无法优化"。如果缺乏实时的成本监控和异常告警，前述所有优化机制都无法持续发挥作用——成本可能在某次不经意的配置变更后悄然飙升，也可能因为某个 Agent 的 Prompt 膨胀而在几天内吞噬整月预算。
 
 本节将构建两个核心组件：`CostMonitoringSystem` 负责多维度的成本追踪与预测，`CostAnomalyDetector` 负责基于统计方法的异常检测与告警。二者与第 17 章的可观测性框架深度集成，共同构成了成本可见性的完整闭环。
+
+> **与第 17 章告警体系的关系**：本节的成本告警（预算阈值告警、异常尖峰告警）均通过第 17 章 §17.3.3 的 `AlertRuleEngine` 和 §17.7.2 的 `AgentAlertManager` 进行分发与通知。本节仅定义成本领域的告警触发条件和异常检测逻辑，告警的路由、分组、去重、静默和通知渠道管理等通用能力完整实现详见第 17 章。
 
 ### 19.6.1 CostMonitoringSystem：多维度成本追踪
 
@@ -8132,8 +8133,8 @@ function calculateMonthlyCost(config: BaselineConfig): number {
  *
  * 路由策略：
  *   - 简单事实查询 (40%) → Claude Haiku ($0.25/$1.25 per MTok)
- *   - 文档摘要 (20%) → Claude Sonnet 4.6 ($3/$15 per MTok)
- *   - 复杂分析 (40%) → Claude Opus 4.6 ($15/$75 per MTok)
+ *   - 文档摘要 (20%) → Claude Sonnet 4 ($3/$15 per MTok)
+ *   - 复杂分析 (40%) → Claude Opus 4 ($15/$75 per MTok)
  */
 
 interface RoutingResult {
@@ -8211,12 +8212,12 @@ function calculateLayer1Savings(): {
  *   输出: 800 × 6000 × 30 × $1.25/M  = $180.00
  *   小计: $382.50/月
  *
- * claude-sonnet-4.6 (20%):
+ * claude-sonnet-4 (20%):
  *   输入: 4500 × 3000 × 30 × $3/M = $1,215.00
  *   输出: 800 × 3000 × 30 × $15/M = $1,080.00
  *   小计: $2,295.00/月
  *
- * claude-opus-4.6 (40%):
+ * claude-opus-4 (40%):
  *   输入: 4500 × 6000 × 30 × $15/M = $12,150.00
  *   输出: 800 × 6000 × 30 × $75/M  = $10,800.00
  *   小计: $22,950.00/月
@@ -8654,12 +8655,12 @@ function evaluateRoutingQuality(
 
 **场景描述**
 
-一个电商平台的客服 Agent 使用 Claude Sonnet 4.6 处理用户咨询。其系统提示词非常长（包含商品知识库摘要、退换货政策、优惠活动规则等），达到 6,000 tokens。而用户的实际问题通常只有 100-300 tokens。这意味着每次请求中 90%+ 的 token 是重复的系统提示词。
+一个电商平台的客服 Agent 使用 Claude Sonnet 4 处理用户咨询。其系统提示词非常长（包含商品知识库摘要、退换货政策、优惠活动规则等），达到 6,000 tokens。而用户的实际问题通常只有 100-300 tokens。这意味着每次请求中 90%+ 的 token 是重复的系统提示词。
 
 **优化前状态**
 
 ```
-- 模型: Claude Sonnet 4.6 ($3/MTok 输入, $15/MTok 输出)
+- 模型: Claude Sonnet 4 ($3/MTok 输入, $15/MTok 输出)
 - 日均请求量: 80,000 次
 - 系统提示词: 6,000 tokens (固定不变)
 - 平均用户输入: 200 tokens (包含对话历史)
@@ -8684,7 +8685,7 @@ function evaluateRoutingQuality(
  * 缓存读取: 原价的 10%  (命中缓存时)
  * 缓存 TTL: 5 分钟 (5 分钟内重复请求命中缓存)
  *
- * Claude Sonnet 4.6 定价:
+ * Claude Sonnet 4 定价:
  *   标准输入: $3/MTok
  *   缓存写入: $3.75/MTok (1.25x)
  *   缓存读取: $0.30/MTok (0.1x)
@@ -8874,7 +8875,7 @@ async function beforeOptimization_CSAgent(
 
   // 模拟 API 调用
   // const response = await anthropic.messages.create({
-  //   model: "claude-sonnet-4-6-20260201",
+  //   model: "claude-sonnet-4-20260201",
   //   max_tokens: 500,
   //   messages,
   // });
@@ -8919,7 +8920,7 @@ async function afterOptimization_CSAgent(
 
   // 模拟 Anthropic API 调用
   // const response = await anthropic.messages.create({
-  //   model: "claude-sonnet-4-6-20260201",
+  //   model: "claude-sonnet-4-20260201",
   //   max_tokens: 500,
   //   system: systemBlocks,
   //   messages: [

@@ -6211,7 +6211,232 @@ function advisorDemo(): void {
 
 ---
 
-## 20.8 本章小结
+
+## 20.8 "MCP 已死"论争与 Skill 范式的崛起
+
+### 20.8.1 争论的起源
+
+2025 年末至 2026 年初，AI Agent 社区爆发了一场激烈的"MCP 已死"论争。这场争论的核心观点是：随着 Agent 获得直接执行 Bash 命令和文件系统操作的能力，通过 MCP 暴露的数百个工具变得冗余——一个 Bash 工具就能替代 50+ 个 MCP 工具。
+
+争论的导火索来自多个方面：
+
+1. **Claude Code 的示范效应**：Anthropic 自家的 Claude Code 产品仅通过少量核心工具（Bash、文件读写、浏览器）就实现了强大的 Agent 能力，无需依赖大量 MCP Server
+2. **Token 经济学的压力**：每个 MCP 工具的 schema 描述都会消耗上下文窗口中的 Token，50 个 MCP 工具可能占用数千 Token，而一个 Bash 工具仅需约 100 Token
+3. **Skill 规范的出现**：Block（Square）开源项目 Goose 提出的 Skill 规范——以 Markdown 文件封装领域知识和工作流程，按需加载到 Agent 上下文中
+
+### 20.8.2 Skill 范式详解
+
+Skill 是一种以 Markdown 文件（通常命名为 `SKILL.md`）封装的可复用知识包，它教会 Agent **如何**完成特定任务，而非直接提供工具能力。
+
+```typescript
+// Skill 的核心数据模型
+interface Skill {
+  name: string;           // 技能标识符
+  description: string;    // 触发条件描述
+  instructions: string;   // Markdown 格式的详细指令
+  dependencies?: string[]; // 依赖的工具或其他 Skill
+}
+
+// Skill 加载器：按需将 Skill 注入 Agent 上下文
+class SkillLoader {
+  private skills: Map<string, Skill> = new Map();
+  
+  async loadSkill(name: string): Promise<string> {
+    // 从文件系统读取 SKILL.md
+    const skillPath = `./skills/${name}/SKILL.md`;
+    const content = await fs.readFile(skillPath, 'utf-8');
+    const skill = this.parseSkillFile(content);
+    this.skills.set(name, skill);
+    return skill.instructions;
+  }
+  
+  // 根据用户意图动态选择 Skill
+  async selectSkill(userIntent: string, availableSkills: Skill[]): Promise<Skill | null> {
+    // LLM 判断哪个 Skill 与当前任务最相关
+    const selection = await llm.classify(userIntent, 
+      availableSkills.map(s => ({ name: s.name, desc: s.description }))
+    );
+    return selection ? this.skills.get(selection.name) ?? null : null;
+  }
+  
+  private parseSkillFile(content: string): Skill {
+    // 解析 YAML frontmatter + Markdown body
+    const { frontmatter, body } = parseFrontmatter(content);
+    return {
+      name: frontmatter.name,
+      description: frontmatter.description,
+      instructions: body,
+      dependencies: frontmatter.dependencies
+    };
+  }
+}
+```
+
+一个典型的 Skill 文件示例：
+
+````markdown
+---
+name: square-integration
+description: How to integrate with our Square payment account
+---
+
+# Square Integration
+
+## Authentication
+- Test key: Use `SQUARE_TEST_KEY` from `.env.test`
+- Production key: In 1Password under "Square Production"
+
+## Common Operations
+
+### Create a customer
+```typescript
+const customer = await squareup.customers.create({
+  email: user.email,
+  metadata: { userId: user.id }
+});
+```
+
+### Error Handling
+- `card_declined`: Show user-friendly message, suggest different payment method
+- `rate_limit`: Implement exponential backoff
+````
+
+### 20.8.3 "GitHub Actions 与 Bash"类比
+
+Goose 项目负责人 Angie Jones 提出了一个精辟的类比来澄清 Skill 与 MCP 的关系：
+
+> "说 Skill 杀死了 MCP，就像说 GitHub Actions 杀死了 Bash 一样荒谬。Bash 仍然在执行实际的命令。GitHub Actions 改变的是表达方式，而非执行方式。YAML 组织了执行流程，并没有替代执行本身。"
+
+这个类比揭示了两者的分层关系：
+
+```typescript
+// MCP 与 Skill 的分层架构
+// Layer 1: MCP 提供能力层（Capability Layer）
+interface MCPCapabilityLayer {
+  // MCP Server 暴露的原子工具
+  tools: {
+    bash: (command: string) => Promise<string>;
+    readFile: (path: string) => Promise<string>;
+    writeFile: (path: string, content: string) => Promise<void>;
+    httpRequest: (url: string, options: RequestOptions) => Promise<Response>;
+    queryDatabase: (sql: string) => Promise<ResultSet>;
+  };
+}
+
+// Layer 2: Skill 提供知识层（Knowledge Layer）
+interface SkillKnowledgeLayer {
+  // Skill 封装的领域知识和工作流
+  workflows: {
+    howToDeployToProduction: string;  // Markdown 指令
+    howToTriageIncident: string;
+    howToReviewPullRequest: string;
+    codingConventions: string;
+  };
+}
+
+// Agent 同时需要两个层次
+class ModernAgent {
+  constructor(
+    private capabilities: MCPCapabilityLayer,  // "能做什么"
+    private knowledge: SkillKnowledgeLayer      // "该怎么做"
+  ) {}
+  
+  async executeTask(task: string): Promise<string> {
+    // 1. 从 Skill 层获取相关知识
+    const relevantSkill = await this.findRelevantSkill(task);
+    
+    // 2. 用 MCP 能力层执行具体操作
+    return this.executeWithGuidance(relevantSkill, task);
+  }
+}
+```
+
+### 20.8.4 "MCP 已死"的真正含义
+
+经过社区的深入讨论，"MCP 已死"论争逐渐收敛出以下共识：
+
+| 观点 | 含义 | 有效性 |
+|------|------|--------|
+| "MCP 工具过多" | Agent 不需要同时加载数百个工具的 schema | ✅ 有效：工具发现应按需进行 |
+| "Bash 替代 MCP" | 通用 Bash 工具可替代许多特定功能工具 | ⚠️ 部分有效：适用于开发场景，不适用于生产安全场景 |
+| "Skill 替代 MCP" | Markdown 指令可替代工具 schema | ❌ 误解：两者是互补关系，不是替代关系 |
+| "MCP 协议本身有问题" | 协议设计存在根本缺陷 | ❌ 混淆了协议与使用模式 |
+
+真正的启示不是"MCP 已死"，而是 Agent 工具系统正在经历一次架构升级：
+
+1. **从"工具洪泛"到"按需发现"**：Agent 不应在启动时加载所有工具，而应根据任务动态发现和加载所需工具。Skill Discovery Protocol（SDP）等方案正在探索这一方向
+2. **从"工具优先"到"能力优先"**：少量通用能力（Bash、HTTP、文件系统）+ 丰富的领域知识（Skill）比大量专用工具更高效
+3. **从"静态配置"到"动态组合"**：MCP Apps 的概念正在兴起——将 MCP Server 与 UI 组件、Skill 知识打包为可分发的"Agent 应用"
+
+### 20.8.5 SDP（Skill Discovery Protocol）与 MCP Apps
+
+社区正在探索的两个演进方向：
+
+**SDP 模式**：在 Agent 与大量 MCP Server 之间插入一个发现层，Agent 只需要一个 `skill_search` 工具即可按需找到并连接合适的 MCP Server：
+
+```typescript
+// SDP：技能发现协议
+class SkillDiscoveryProtocol {
+  private registry: MCPServerRegistry;
+  
+  // Agent 唯一需要的入口工具
+  async skillSearch(query: string): Promise<DiscoveredSkill[]> {
+    // 语义搜索可用的 MCP Server 及其工具
+    const candidates = await this.registry.semanticSearch(query);
+    return candidates.map(c => ({
+      name: c.serverName,
+      tools: c.relevantTools,
+      connectionUrl: c.endpoint,
+      description: c.description
+    }));
+  }
+  
+  // 按需连接发现的 MCP Server
+  async skillInvoke(serverName: string, toolName: string, args: any): Promise<any> {
+    const connection = await this.registry.connect(serverName);
+    return connection.callTool(toolName, args);
+  }
+}
+```
+
+**MCP Apps 模式**：将 MCP Server、Skill 文件、UI 组件打包为可分发的应用单元：
+
+```typescript
+// MCP App 的 manifest 定义
+interface MCPAppManifest {
+  name: string;
+  version: string;
+  description: string;
+  
+  // MCP Server 配置
+  server: {
+    transport: 'streamable-http' | 'stdio';
+    endpoint?: string;
+    command?: string;
+  };
+  
+  // 内置 Skill 文件
+  skills: string[];  // 指向 SKILL.md 文件的路径
+  
+  // UI 组件（可选）
+  ui?: {
+    components: UIComponentDefinition[];
+    layout: 'sidebar' | 'modal' | 'embedded';
+  };
+  
+  // 权限声明
+  permissions: {
+    filesystem?: { paths: string[]; access: 'read' | 'write' };
+    network?: { domains: string[] };
+    shell?: { allowed: boolean; restricted_commands?: string[] };
+  };
+}
+```
+
+> **本书立场**：本书认为"MCP 已死"是一个有价值的反思信号，但不是事实。MCP 作为 Agent 能力协议的地位仍然稳固，但 Agent 工具系统的最佳实践正在从"尽可能多的工具"转向"最少的工具 + 最丰富的知识"。Skill 是这一转型的关键补充，而非替代品。
+
+---
+## 20.9 本章小结
 
 本章深入探讨了 2025 年 Agent 互操作协议生态的三大支柱——MCP、A2A、ANP——的架构设计、实现细节和协同工作模式。以下是本章的十大核心要点：
 

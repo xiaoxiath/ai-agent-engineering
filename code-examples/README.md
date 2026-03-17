@@ -1,6 +1,22 @@
 # 代码示例
 
-本目录包含《AI Agent 工程化实战》全书的可运行代码示例。
+本目录包含《AI Agent 工程》全书的配套代码示例。
+
+## 这份代码仓的定位
+
+请先明确一个预期：本目录的目标不是为每一章提供同等完整度的“生产级项目”，而是提供三类支持：
+
+1. **关键概念的最小实现**：帮助读者理解正文中的核心抽象
+2. **工程模式的参考骨架**：为进一步扩展提供起点
+3. **章节之间的共享基础设施**：减少重复定义，提高阅读连贯性
+
+因此，这里的示例按成熟度分为：
+
+- **可运行示例**：可直接执行，适合快速上手
+- **参考骨架**：展示目录、接口和关键组件，适合作为扩展起点
+- **占位目录**：用于对齐章节结构，后续逐步补齐
+
+详细对照请见：[代码示例成熟度矩阵](../CODE_EXAMPLE_MATRIX.md)
 
 ## 环境要求
 
@@ -22,44 +38,35 @@ cp .env.example .env
 pnpm tsx 01-basic-agent-loop.ts
 ```
 
-## 目录结构
+## 当前目录结构
 
 ```
 code-examples/
 ├── shared/                         # 全书共享类型与工具函数（附录 G）
-│   ├── index.ts                    #   统一导出入口
-│   ├── types.ts                    #   核心类型：Message, AgentState, AgentEvent,
-│   │                               #     ToolDefinition, ToolCall, ToolResult,
-│   │                               #     Registry<T>, SemanticCacheConfig 等
-│   ├── utils.ts                    #   工具函数：estimateTokens, cosineSimilarity,
-│   │                               #     SemanticCache<T>
-│   ├── llm-client.ts               #   LLMClient 接口 + MockLLMClient
-│   └── embedding.ts                #   EmbeddingService 接口 + MockEmbeddingService
+├── 01-basic-agent-loop.ts          # 可运行：基本 Agent 循环
+├── 02-state-management.ts          # 可运行：Reducer 模式状态管理
+├── 03-context-engineering.ts       # 可运行：上下文工程
+├── 04-tool-system.ts               # 可运行：工具系统与 ACI 设计
+├── 05-multi-agent-orchestration.ts # 可运行：多 Agent 编排最小示例
+├── 06-mcp-server.ts                # 可运行：MCP 服务端最小实现
 │
-├── 01-basic-agent-loop.ts          # 第 3 章 — 基本 Agent 循环
-├── 02-state-management.ts          # 第 4 章 — Reducer 模式状态管理
-├── 03-context-engineering.ts       # 第 5 章 — 上下文工程
-├── 04-tool-system.ts               # 第 6 章 — 工具系统与 ACI 设计
-├── 05-multi-agent-orchestration.ts # 第 9-10 章 — 多 Agent 编排
-├── 06-mcp-server.ts                # 第 20 章 — MCP 服务端实现
-│
-├── ch07-memory/                    # 第 7 章 — 记忆架构（待迁移）
-├── ch08-rag/                       # 第 8 章 — RAG 与知识工程（待迁移）
-├── ch11-framework-comparison/      # 第 11 章 — 框架对比（待迁移）
-├── ch12-threat-model/              # 第 12 章 — 威胁模型（待迁移）
-├── ch13-prompt-injection/          # 第 13 章 — Prompt 注入防御（待迁移）
-├── ch14-trust-architecture/        # 第 14 章 — 信任架构（待迁移）
-├── ch15-evaluation/                # 第 15 章 — 评估体系（待迁移）
-├── ch16-benchmarks/                # 第 16 章 — 基准测试（待迁移）
-├── ch17-observability/             # 第 17 章 — 可观测性（待迁移）
-├── ch18-deployment/                # 第 18 章 — 部署与运维（待迁移）
-├── ch19-cost-engineering/          # 第 19 章 — 成本工程（待迁移）
-├── ch20-protocols/                 # 第 20 章 — 协议与互操作（待迁移）
-├── ch21-ecosystem/                 # 第 21 章 — 生态系统与平台（待迁移）
-├── ch22-agent-experience/          # 第 22 章 — Agent 体验设计（待迁移）
-├── ch23-coding-assistant/          # 第 23 章 — 编程助手案例（待迁移）
-├── ch24-customer-service/          # 第 24 章 — 企业客服案例（待迁移）
-├── ch25-data-analysis/             # 第 25 章 — 数据分析 Agent 案例（待迁移）
+├── ch07-memory/                    # 参考骨架：第 7 章
+├── ch08-rag/                       # 参考骨架：第 8 章
+├── ch11-framework-comparison/      # 占位目录：第 11 章
+├── ch12-threat-model/              # 占位目录：第 12 章
+├── ch13-prompt-injection/          # 占位目录：第 13 章
+├── ch14-trust-architecture/        # 占位目录：第 14 章
+├── ch15-evaluation/                # 占位目录：第 15 章
+├── ch16-benchmarks/                # 占位目录：第 16 章
+├── ch17-observability/             # 占位目录：第 17 章
+├── ch18-deployment/                # 占位目录：第 18 章
+├── ch19-cost-engineering/          # 占位目录：第 19 章
+├── ch20-protocols/                 # 占位目录：第 20 章
+├── ch21-ecosystem/                 # 占位目录：第 21 章
+├── ch22-agent-experience/          # 占位目录：第 22 章
+├── ch23-coding-assistant/          # 占位目录：第 23 章
+├── ch24-customer-service/          # 占位目录：第 24 章
+├── ch25-data-analysis/             # 占位目录：第 25 章
 │
 ├── package.json
 ├── tsconfig.json
@@ -70,60 +77,16 @@ code-examples/
 
 `shared/` 目录对应附录 G《共享类型与工具函数参考》，提取了全书代码示例中反复引用的公共定义：
 
-| 文件 | 附录章节 | 内容 |
-|------|---------|------|
-| `types.ts` | G.2-G.3 | Message, ToolDefinition, ToolCall, ToolResult, AgentState, AgentEvent, Registry\<T\>, SemanticCacheConfig 等 |
-| `utils.ts` | G.1, G.3.2 | estimateTokens(), cosineSimilarity(), SemanticCache\<T\> |
-| `llm-client.ts` | G.2.1 | LLMClient 接口, LLMResponse, MockLLMClient |
-| `embedding.ts` | G.1.3 | EmbeddingService 接口, MockEmbeddingService |
-| `index.ts` | — | 统一重导出，供各章节 `import { ... } from '../shared'` |
+| 文件 | 内容 | 角色 |
+|------|------|------|
+| `types.ts` | Message、ToolDefinition、ToolCall、ToolResult、AgentState 等 | 基础类型定义 |
+| `utils.ts` | estimateTokens()、cosineSimilarity()、SemanticCache 等 | 常用工具函数 |
+| `llm-client.ts` | LLMClient 接口、LLMResponse、MockLLMClient | 模型调用抽象 |
+| `embedding.ts` | EmbeddingService 接口、MockEmbeddingService | 向量与嵌入抽象 |
+| `index.ts` | 统一重导出 | 供各章节复用 |
 
-### 使用方式
+## 使用建议
 
-各章节代码通过统一入口导入所需类型和工具函数：
-
-```typescript
-import {
-  estimateTokens,
-  cosineSimilarity,
-  type Message,
-  type AgentState,
-  type ToolDefinition,
-  type LLMClient,
-  MockLLMClient,
-  MockEmbeddingService,
-  Registry,
-  SemanticCache,
-} from '../shared';
-```
-
-## 示例列表
-
-| 文件 | 对应章节 | 说明 |
-|------|---------|------|
-| `01-basic-agent-loop.ts` | 第 3 章 | 基本 Agent 循环 (ReAct Loop) |
-| `02-state-management.ts` | 第 4 章 | Reducer 模式状态管理 + 事件溯源 |
-| `03-context-engineering.ts` | 第 5 章 | 上下文窗口管理、Context Rot 检测、NOTES.md 模式 |
-| `04-tool-system.ts` | 第 6 章 | 工具系统 ACI 设计、Poka-Yoke 防错 |
-| `05-multi-agent-orchestration.ts` | 第 9-10 章 | Coordinator / Pipeline / Fan-Out Gather 模式 |
-| `06-mcp-server.ts` | 第 20 章 | MCP 服务端简化实现 |
-
-## 待迁移章节
-
-以下章节的代码目前嵌入在正文 Markdown 中，将在后续重构中提取为独立可运行示例：
-
-- 第 7 章（记忆架构）、第 8 章（RAG）
-- 第 11 章（框架对比）
-- 第 12-14 章（安全与信任）
-- 第 15-16 章（评估与基准）
-- 第 17-19 章（生产运维与成本）
-- 第 20-21 章（协议与生态）
-- 第 22 章（Agent 体验）
-- 第 23-25 章（行业案例）
-
-## 注意事项
-
-- 运行 Mock 示例无需 API Key；运行真实 LLM 调用的示例需要有效的 API Key
-- 部分示例会消耗 API 额度，请注意用量
-- 代码主要用于演示架构概念，生产环境需要额外加固
-- 所有共享类型均为零外部依赖的纯 TypeScript 定义，可在任何 Node.js 18+ 运行时中使用
+- 如果你是第一次阅读本书，优先运行 `01` 到 `06` 六个核心示例。
+- 如果你在跟读对应章节，请先查看 [代码示例成熟度矩阵](../CODE_EXAMPLE_MATRIX.md)，确认该章节当前属于“可运行示例”还是“参考骨架”。
+- 如果你准备贡献代码，请优先补齐 P0 / P1 章节的最小可运行实现。

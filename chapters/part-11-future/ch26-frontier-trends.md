@@ -1,6 +1,8 @@
 # 第 26 章 前沿趋势与未来方向
 
-本章分析正在重塑 Agent 工程的结构性趋势——推理型 Agent、多模态能力、Agent 原生应用和去中心化协作。本章不是对未来的盲目预测，而是对已经出现苗头的技术方向的冷静分析，每个趋势都讨论其解决的问题、当前成熟度、未解决挑战和对工程实践的影响。前置依赖：全书基础概念。
+本章讨论正在重塑 Agent 工程的一些结构性趋势——推理型 Agent、多模态能力、Agent 原生应用和去中心化协作。需要特别强调的是：**本章不是稳定主干知识，而是面向未来 1–3 年的工程判断与趋势整理**。因此，阅读时更应关注“哪些信号值得持续观察”“哪些趋势已经影响当前工程实践”，而不是把其中的具体时间预测或产品格局视为确定结论。前置依赖：全书基础概念。
+
+> **阅读建议**：如果你当前的目标是把系统做出来并稳定上线，请优先完成第 3–19 章，再回到本章补充趋势视角。
 
 ---
 
@@ -23,7 +25,7 @@ flowchart LR
 
 ### 26.1.1 从 Fast Thinking 到 Deep Reasoning
 
-随着 OpenAI o1/o3、DeepSeek-R1 等推理模型的出现，Agent 的推理能力正在发生质变：
+无论具体模型名字如何变化，过去一年的共同趋势都很明确：模型正在从“快速响应”走向“更长链路、更高成本、但也更可控的深度推理”。在工程上，这意味着系统设计需要重新平衡延迟、成本、可靠性与自主性。
 
 ```typescript
 interface ReasoningAgent {
@@ -32,7 +34,7 @@ interface ReasoningAgent {
   
   // 推理模式：深度思考
   deepReason(input: string, config: ReasoningConfig): Promise<ReasoningResult>;
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   private async assessComplexity(problem: string): Promise<number> { return 0.5; }
   private async fastThink(problem: string): Promise<ReasoningResult> { return {} as ReasoningResult; }
   private async deepReason(problem: string, config: ReasoningConfig): Promise<ReasoningResult> { return {} as ReasoningResult; }
@@ -52,12 +54,12 @@ interface ReasoningAgent {
 
 ### 26.2.1 从模型竞赛到系统工程
 
-2025 年，OpenAI 在其 Agent 部署最佳实践中正式提出了 **Harness Engineering**（约束工程）这一概念，其核心论断是：
+本章使用 **Harness Engineering**（约束工程）这一术语，来概括一种正在变得越来越重要的工程倾向：团队之间的差异，越来越少地来自“谁选了更强的模型”，越来越多地来自“谁构建了更强的约束、评估和反馈闭环”。为了避免误解，这里更应把它理解为一种方法论归纳，而不是依赖某一家厂商定义的固定术语。
 
 > **"The new moat is your Agent harness, not model quality."**
 > ——新的护城河不是模型质量，而是你的 Agent 约束系统。
 
-这一论断的背景是 2025-2026 年间模型能力的快速同质化。当 Claude Opus 4.6、Gemini 3、GLM-5 等模型在推理、编码、长上下文等核心指标上趋于接近（参见 26.5 节），团队很难再通过「选一个更好的模型」来获得持久的竞争优势。真正拉开差距的，是围绕模型构建的**约束系统、反馈回路、文档规范和生命周期管理**——即 Harness。
+这一判断的背景是模型能力持续靠近、产品形态快速迭代，以及团队竞争优势逐渐转向系统工程质量。当 Claude Opus 4.6、Gemini 3、GLM-5 等模型在推理、编码、长上下文等核心指标上趋于接近（参见 26.5 节），团队很难再通过「选一个更好的模型」来获得持久的竞争优势。真正拉开差距的，是围绕模型构建的**约束系统、反馈回路、文档规范和生命周期管理**——即 Harness。
 
 这与本书第 2 章提出的**「确定性外壳 （参见第 2 章：确定性外壳 / 概率性内核） + 概率性内核」**架构哲学高度一致。如果说那是一个架构原则，那 Harness Engineering 就是将这个原则落地为一套完整工程纪律的方法论。确定性外壳的职责——输入验证、输出校验、状态管理、错误处理、审计日志——正是 Harness 的核心组成部分。
 
@@ -76,7 +78,7 @@ interface HarnessConfig {
     outputSchema: JSONSchema;
     // 行为边界：Agent 不能执行的操作
     forbiddenActions: string[];
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
     // 幻觉（Hallucination）检测
     hallucinationChecker: HallucinationDetector;
   };
@@ -110,7 +112,7 @@ interface AgentLifecycleManager {
     createVersion(config: HarnessConfig): AgentVersion;
     rollback(targetVersion: string): Promise<void>;
     diff(v1: string, v2: string): ConfigDiff;
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
     healthCheck: () => Promise<HealthStatus>;
     circuitBreaker: CircuitBreakerConfig;
   };
@@ -155,7 +157,7 @@ interface AgentDevelopmentSpec {
   behaviorSpec: {
     capabilities: string[];       // 核心能力列表
     inputConstraints: Schema;     // 输入约束
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
     costBudget: number;
     safetyChecklist: string[];
   };
@@ -245,7 +247,7 @@ interface ModelAgnosticAgent {
   modelProvider: {
     primary: ModelConfig;
     fallbacks: ModelConfig[];    // 多模型回退链
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
       (a.benchmarkScore / a.costPerToken) - (b.benchmarkScore / b.costPerToken)
     )[candidates.length - 1];
   }
@@ -265,7 +267,7 @@ interface EmbodiedAgent {
   // 规划
   plan(goal: string, worldState: WorldState): Promise<ActionSequence>;
   // 执行
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   async learn(experience: Experience): Promise<void> {}
   private async generateCandidatePlans(goal: string, state: WorldState): Promise<ActionSequence[]> { return []; }
   private calculateReward(state: WorldState, goal: string): number { return 0; }
@@ -283,7 +285,7 @@ interface AgentMarketplace {
   // 发现 Agent
   discover(query: string, filters?: DiscoverFilters): Promise<AgentListing[]>;
   // 组合 Agent
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   basePrice: number;
   currency: string;
   volumeDiscounts?: VolumeDiscount[];
@@ -299,7 +301,7 @@ interface AgentMarketplace {
 │  ┌──────────┐    ┌──────────┐               │
 │  │ Provider │───→│ Registry │               │
 │  │  Agents  │    │ & Rating │               │
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
 │  └────────┘                                  │
 │                                              │
 │  Trust Layer: Reputation + Audit + SLA       │
@@ -319,7 +321,7 @@ interface LongRunningAgent {
   // 暂停/恢复
   suspend(handle: TaskHandle): Promise<Checkpoint>;
   resume(checkpoint: Checkpoint): Promise<TaskHandle>;
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   private async executeStep(step: TaskStep, handle: TaskHandle): Promise<void> {}
   private async reportProgress(handle: TaskHandle, current: number, total: number): Promise<void> {}
   private notifyFailure(handle: TaskHandle, error: Error): void {}
@@ -347,7 +349,7 @@ interface LongRunningAgent {
   ├── Agent 可观测性成熟
   ├── 单 Agent 产品爆发
   └── Vibe Coding 流行，暴露质量隐患
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   ├── 具身智能突破
   ├── 模型无关架构成为默认选择
   ├── Agent-Agent 自主协作
@@ -383,7 +385,7 @@ class RepositoryIntelligence {
     // 1. 项目结构理解
     const structure = await this.mapProjectStructure(repoPath);
     
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
     
     return { structure, dependencies, patterns, intent };
   }
@@ -423,7 +425,7 @@ interface WorldModel<TState, TAction> {
   transition(state: TState, action: TAction): Promise<TransitionResult<TState>>;
   
   // 奖励/评价函数：评估某个状态对于目标的好坏
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   epistemic: number;    // 知识不足导致的不确定性（可通过更多数据消除）
   total: number;
   suggestion: 'proceed' | 'gather_more_info' | 'ask_human';
@@ -441,7 +443,7 @@ class HierarchicalWorldModel<TState, TAction> {
   constructor(
     private physicalLayer: WorldModelLayer,   // 物理/执行层
     private semanticLayer: WorldModelLayer,   // 语义/含义层
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   private applyPrediction(state: MultiLevelState, prediction: MultiLevelPrediction): MultiLevelState {
     return state;
   }
@@ -469,7 +471,7 @@ class MCTSPlanner {
   
   async plan(
     rootState: any,
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   
   isLeaf(): boolean { return this.children.length === 0; }
   isFullyExpanded(): boolean { return false; /* 省略 */ }
@@ -505,7 +507,7 @@ class HybridWorldModel implements WorldModel<SystemState, AgentAction> {
     private rules: DeterministicRules,      // 确定性规则（如 SQL 语法验证）
     private statistics: StatisticalModel,   // 统计模型（如历史成功率）
     private llm: LLMSimulator              // LLM 模拟器（处理开放域推理）
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   private reconcile(predicted: SystemState, observation: Observation): SystemState {
     return {} as SystemState;
   }
@@ -536,7 +538,7 @@ interface SelfImprovingAgent {
   promptOptimizer: PromptOptimizer;
   
   // L2: 经验学习系统（中等风险，需要人类监督）
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   private async identifyRootCause(trajectory: ActionTrajectory, failure: FailureAnalysis): Promise<any> { return {}; }
   private computeRelevance(exp: any, task: Task, state: any): number { return 0; }
   private computeFreshness(learnedAt: Date): number { return 0; }
@@ -554,7 +556,7 @@ class ImprovementGuard {
   private humanOversight: HumanOversightChannel;
   
   // 在允许任何自我改进之前进行安全检查
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   }
   private async assessCapabilityChange(proposal: ImprovementProposal): Promise<any> { return {}; }
   private async checkPostImprovementAlignment(proposal: ImprovementProposal): Promise<any> { return {}; }
@@ -587,7 +589,7 @@ class ImprovementGuard {
 │ (模拟用户)   │     │ (适配层)  │     │  (为人类设计) │
 └─────────────┘     └──────────┘     └──────────────┘
 
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
 │             │     │  │ Agent 原生进程管理     │     │
 │             │     │  │ Agent 原生通信协议     │     │
 │             │     │  └─────────────────────┘     │
@@ -603,7 +605,7 @@ interface AgentNativeOS {
   fileSystem: IntentBasedFileSystem;
   
   // 2. 能力式权限模型：比传统 RBAC 更灵活
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   
   // 优雅终止
   gracefulShutdown(process: AgentProcess, reason: string): Promise<ShutdownResult>;
@@ -650,7 +652,7 @@ interface AgentEconomy {
   serviceMarket: ServiceMarket;
   
   // 2. 信用体系：Agent 的可信度评估
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   private calculateSLAPremium(sla: any): number { return 0; }
   private meetMinimumRequirements(bid: AgentBid, task: TaskSpec): boolean { return true; }
   private scoreBid(bid: AgentBid, task: TaskSpec): number { return 0; }
@@ -676,7 +678,7 @@ class RegulatorySandbox {
   async monitorMarketHealth(): Promise<MarketHealthReport> {
     return {
       // 竞争指标
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   private enforceQualityBaseline(agents: string[]): InterventionResult { return {} as InterventionResult; }
   private promoteCompetition(market: string): InterventionResult { return {} as InterventionResult; }
   private escalateToHuman(anomaly: MarketAnomaly): InterventionResult { return {} as InterventionResult; }
@@ -712,7 +714,7 @@ class EUAIActRiskClassifier {
   async classify(agent: AgentDescription): Promise<RiskClassification> {
     const annexIIICriteria = [
       {
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   private isInLawEnforcement(agent: AgentDescription): boolean { return false; }
   private isInJudiciary(agent: AgentDescription): boolean { return false; }
   private interactsDirectlyWithHumans(agent: AgentDescription): boolean { return true; }
@@ -730,7 +732,7 @@ interface EUAIActHumanOversight {
     // Agent 必须能解释自己能做什么和不能做什么
     explainCapabilities(): string[];
     explainLimitations(): string[];
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
     // 停止后的安全状态
     getPostStopSafeState(): SystemState;
   };
@@ -761,7 +763,7 @@ class ComplianceAsCode {
   
   // 注册合规规则
   registerRule(rule: ComplianceRule): void {
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
       estimatedRemediationEffort: '2-4 周开发 + 合规审计',
     };
   }
@@ -798,7 +800,7 @@ class EmergentBehaviorMonitor {
   
   // 检测 Multi-Agent 系统中的涌现行为
   async detectEmergentBehavior(
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
   private async measureCollaborationDeviation(state: MultiAgentSystemState): Promise<any> { return {}; }
   private assessOverallRisk(patterns: EmergentPattern[]): string { return 'low'; }
   private generateRecommendations(patterns: EmergentPattern[]): string[] { return []; }
@@ -816,7 +818,7 @@ Agent 造成损失
     │
     ├── Agent 在设计边界内操作？
     │   ├── 是 → 系统设计方/部署方承担主要责任
-    // ... 完整实现见 code-examples/ 目录 ...
+    // ... 对应实现可参考 code-examples/ 目录 ...
     └── 人类监督者是否介入？
         ├── 有人类监督但未阻止 → 监督者承担部分责任
         ├── 无人类监督（全自动） → 部署方承担完全责任

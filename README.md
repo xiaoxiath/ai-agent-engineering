@@ -45,75 +45,86 @@ ai-agent-engineering/
 ├── CONTRIBUTING.md                    # 贡献指南
 ├── SUMMARY.md                         # 完整目录
 ├── chapters/
-│   ├── part-01-foundation/            # 第一部分：基础与愿景
+│   ├── part-01-foundation/            # 第 1 部分：基础与愿景
 │   │   ├── ch01-age-of-agents.md
 │   │   └── ch02-theoretical-foundations.md
-│   ├── part-02-core-architecture/     # 第二部分：核心架构设计
+│   ├── part-02-core-architecture/     # 第 2 部分：核心架构设计
 │   │   ├── ch03-architecture-overview.md
 │   │   ├── ch04-state-management.md
 │   │   ├── ch05-context-engineering.md
 │   │   ├── ch06-tool-system-design.md
 │   │   └── ch06.5-skill-engineering.md
-│   ├── part-03-memory-knowledge/      # 第三部分：记忆与知识
+│   ├── part-03-memory-knowledge/      # 第 3 部分：记忆与知识
 │   │   ├── ch07-memory-architecture.md
 │   │   └── ch08-rag-knowledge-engineering.md
-│   ├── part-04-multi-agent/           # 第四部分：Multi-Agent 系统
+│   ├── part-04-multi-agent/           # 第 4 部分：Multi-Agent 系统
 │   │   ├── ch09-multi-agent-fundamentals.md
 │   │   ├── ch10-orchestration-patterns.md
 │   │   └── ch11-framework-comparison.md
-│   ├── part-05-security-trust/        # 第五部分：安全与信任
+│   ├── part-05-security-trust/        # 第 5 部分：安全与信任
 │   │   ├── ch12-threat-model.md
 │   │   ├── ch13-prompt-injection-defense.md
 │   │   └── ch14-trust-architecture.md
-│   ├── part-06-evaluation/            # 第六部分：评估与质量
+│   ├── part-06-evaluation/            # 第 6 部分：评估与质量
 │   │   ├── ch15-evaluation-system.md
 │   │   └── ch16-benchmarks.md
-│   ├── part-07-production/            # 第七部分：生产部署
+│   ├── part-07-production/            # 第 7 部分：生产部署
 │   │   ├── ch17-observability.md
 │   │   ├── ch18-deployment-operations.md
 │   │   └── ch19-cost-engineering.md
-│   ├── part-08-interoperability/      # 第八部分：互操作与生态
+│   ├── part-08-interoperability/      # 第 8 部分：互操作与生态
 │   │   ├── ch20-protocols.md
 │   │   └── ch21-ecosystem-platforms.md
-│   ├── part-09-user-experience/       # 第九部分：用户体验
+│   ├── part-09-user-experience/       # 第 9 部分：用户体验
 │   │   └── ch22-agent-experience-design.md
-│   ├── part-10-case-studies/          # 第十部分：实战案例
+│   ├── part-10-case-studies/          # 第 10 部分：实战案例
 │   │   ├── ch23-coding-assistant.md
 │   │   ├── ch24-enterprise-customer-service.md
 │   │   └── ch25-data-analysis-agent.md
-│   └── part-11-future/               # 第十一部分：前沿与展望
+│   └── part-11-future/               # 第 11 部分：前沿与展望
 │       ├── ch26-frontier-trends.md
 │       └── ch27-responsible-development.md
 ├── appendix/
 │   ├── appendix-a-dev-environment.md
 │   ├── appendix-b-framework-api-reference.md
 │   ├── appendix-c-protocol-specs.md
-│   ├── appendix-d-owasp-checklist.md
+│   ├── appendix-d-security-checklist.md
 │   ├── appendix-e-benchmark-catalog.md
 │   ├── appendix-f-recommended-reading.md
-│   └── appendix-g-python-equivalents.md
+│   └── appendix-g-shared-types.md
 └── code-examples/
-    ├── ch03-control-loop/
-    │   └── agent-loop.ts
-    ├── ch04-state-management/
-    │   └── reducer-pattern.ts
-    ├── ch05-context-engineering/
-    │   ├── system-prompt-design.ts
-    │   ├── compaction.ts
-    │   ├── structured-notes.ts
-    │   └── sub-agent-isolation.ts
-    ├── ch06-tool-system/
-    │   ├── tool-design.ts
-    │   └── response-format.ts
-    ├── ch06.5-skill-engineering/
-    │   └── skill-patterns.ts
-    ├── ch09-multi-agent/
-    │   ├── sequential-agent.ts
-    │   ├── parallel-agent.ts
-    │   ├── loop-agent.ts
-    │   └── agent-tool.ts
-    └── ch10-orchestration/
-        └── content-pipeline.ts
+    ├── 01-basic-agent-loop.ts
+    ├── 02-state-management.ts
+    ├── 03-context-engineering.ts
+    ├── 04-tool-system.ts
+    ├── 05-multi-agent-orchestration.ts
+    ├── 06-mcp-server.ts
+    ├── shared/
+    │   ├── index.ts
+    │   ├── types.ts
+    │   ├── llm-client.ts
+    │   ├── embedding.ts
+    │   └── utils.ts
+    ├── ch07-memory/                   # placeholder
+    ├── ch08-rag/                      # placeholder
+    ├── ch11-framework-comparison/     # placeholder
+    ├── ch12-threat-model/             # placeholder
+    ├── ch13-prompt-injection/         # placeholder
+    ├── ch14-trust-architecture/       # placeholder
+    ├── ch15-evaluation/               # placeholder
+    ├── ch16-benchmarks/               # placeholder
+    ├── ch17-observability/            # placeholder
+    ├── ch18-deployment/               # placeholder
+    ├── ch19-cost-engineering/         # placeholder
+    ├── ch20-protocols/                # placeholder
+    ├── ch21-ecosystem/                # placeholder
+    ├── ch22-agent-experience/         # placeholder
+    ├── ch23-coding-assistant/         # placeholder
+    ├── ch24-customer-service/         # placeholder
+    ├── ch25-data-analysis/            # placeholder
+    ├── package.json
+    ├── tsconfig.json
+    └── README.md
 ```
 
 ## 快速开始

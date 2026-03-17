@@ -1,41 +1,6 @@
 # 第 4 章 状态管理 — 确定性的基石
-下面三个真实的生产事故，揭示了 Agent 状态管理为何是一个不可忽视的工程问题：
 
-**幽灵订单**：一个电商 Agent 在处理用户退货请求时，由于状态竞争条件，同时触发了"退货"和"重新发货"两个流程。用户收到了退款，但也收到了一个他并未要求的新包裹。根因是 Agent 的状态更新不是原子性的。
-
-**失忆 Agent**：一个技术支持 Agent 在第 15 轮对话中完全忘记了用户之前提供的错误日志。它重新要求用户上传相同的信息，引发了用户投诉。根因是上下文窗口溢出后的状态回退机制缺失。
-
-**薛定谔状态**：一个多 Agent 协作系统中，两个 Agent 同时读取并修改了同一个共享状态对象。最终状态取决于哪个写入操作"赢了"竞争，导致行为完全不可预测。
-
-这三个问题分别对应状态管理的三个核心挑战：**原子性**、**持久性**和**一致性**。本章将介绍 Reducer + Event Sourcing 模式如何系统性地解决这些问题。
-
-> **设计决策：为什么选择 Reducer + Event Sourcing 而非直接状态突变？** 我们也考虑过更简单的方案——类似 React 的 `useState`，直接修改状态对象。它的优势是学习曲线低、实现简单。但在生产环境中，我们多次遇到"幽灵状态"问题：Agent 的状态在某个时刻被意外修改，但无法追溯是哪个操作导致的。Event Sourcing 通过记录每一次状态变更事件，彻底解决了可追溯性问题。Reducer 的纯函数特性则确保了状态变更的可测试性和可预测性。如果你的 Agent 只是简单的单轮问答（无状态累积），直接状态对象完全足够——不必为了架构正确性而过度设计。
-
-```mermaid
-stateDiagram-v2
-    [*] --> Idle: 初始化
-    Idle --> Processing: 收到用户消息
-    Processing --> ToolCalling: 需要工具调用
-    ToolCalling --> Processing: 工具返回结果
-    Processing --> Responding: 生成回复
-    Responding --> Idle: 回复完成
-    Processing --> Error: 异常发生
-    Error --> Idle: 恢复/重试
-```
-
-
-> **"An Agent without well-managed state is like a Turing machine without a tape — it can compute, but it cannot remember."**
-
-在前三章中，我们构建了 Agent 的骨架——Tool 抽象、规划循环和安全护栏。但任何真正在生产环境中运行的 Agent，都必须面对一个核心问题：**状态（State）**。
-
-状态管理之所以成为"确定性的基石"，是因为：
-
-1. **可重现性（Reproducibility）**：给定相同的初始状态和事件序列，Agent 必须产出完全相同的结果。
-2. **可观测性（Observability）**：运维团队需要随时查看 Agent 当前处于什么阶段、持有什么上下文。
-3. **容错性（Fault Tolerance）**：Agent 在中途崩溃后，必须能从最近的检查点恢复，而非从头开始。
-4. **可审计性（Auditability）**：在金融、医疗等合规场景下，状态变更的完整历史必须可追溯。
-
-本章将从最基础的"为什么"开始，逐步构建一个 **工业级状态管理体系**，涵盖 Reducer 模式、检查点与时间旅行调试、分布式同步、弹性引擎设计，以及性能优化。所有代码使用 **TypeScript** 编写，可直接集成到你的 Agent 框架中。
+本章系统性地解决 Agent 状态管理的三个核心挑战：原子性、持久性和一致性。状态竞争导致的幽灵操作、上下文窗口溢出后的失忆、多 Agent 共享状态的不可预测行为——这些生产事故的根因都是状态管理缺失。本章将从 Reducer + Event Sourcing 模式出发，逐步构建包含检查点、时间旅行调试和分布式同步的工业级状态管理体系。前置依赖：第 3 章的七层架构模型。
 
 ---
 
@@ -320,7 +285,6 @@ state = enhancedReducer(state, createEvent('TASK_STARTED', { task: '查询天气
 
 **权衡 3：可观测性 vs 隐私**
 完整的状态日志对调试至关重要，但可能包含用户敏感信息。解决方案是**分层脱敏**：在写入日志前对敏感字段进行哈希或掩码处理，同时保留足够的结构信息支持调试。
-
 
 
 ```mermaid
@@ -787,4 +751,3 @@ console.log(lazyState.messages.length);  // 触发 loadMessagesFromDB
 **V2（改进版本）**：按领域拆分为四个状态切片——`user_context`（只读）、`order_context`（只读）、`conversation`（追加写入）、`workflow_state`（读写）。LLM 调用时只发送 `conversation` 和 `workflow_state`，其他按需检索。Token 消耗降低 70%。
 
 **V3（生产版本）**：在 V2 基础上增加了事件日志。每次状态变更都记录为一条事件（如 `{type: "status_changed", from: "pending", to: "approved", timestamp: ...}`），支持完整的操作审计和状态回放。这在客户投诉"系统自动取消了我的退货"时提供了关键的举证能力。
-

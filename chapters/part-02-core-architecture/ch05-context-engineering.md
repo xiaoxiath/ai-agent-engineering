@@ -1,35 +1,6 @@
 # 第 5 章 Context Engineering — 上下文工程
-2025 年 6 月，Shopify CEO Tobi Lütke 在一条推文中将 "Context Engineering" 描述为一种比 "Prompt Engineering" 更准确的能力定义。几乎同时，Andrej Karpathy 也开始频繁使用这个术语。这不是术语的更替，而是认知的升级：**构建优秀 Agent 的核心挑战不是写一条好的 Prompt，而是在正确的时间将正确的信息放入 LLM 的上下文窗口**。
 
-考虑一个真实场景：你的 Agent 拥有 128K token 的上下文窗口，但经过 30 轮对话后，窗口中填满了工具调用的原始 JSON 响应、重复的系统指令、过期的中间推理步骤。真正有用的信息——用户的核心意图、关键的业务约束、之前达成的决策——可能只占不到 3%。LLM 被迫在 97% 的噪音中寻找 3% 的信号。
-
-本章提出 **WSCIPO （参见第 2 章：理论基础） 框架**——Write、Select、Compress、Isolate、Persist、Observe——作为上下文工程的系统性方法论。这是在 Anthropic 提出的四策略基础上的扩展，增加了 Persist（持久化）和 Observe（可观测性）两个在生产环境中不可或缺的维度。
-
-```mermaid
-graph LR
-    W[Write 写入] --> S[Select 筛选]
-    S --> C[Compress 压缩]
-    C --> I[Isolate 隔离]
-    I --> P[Persist 持久化]
-    P --> O[Observe 观测]
-    // ... 完整实现见 code-examples/ 目录 ...
-    style C fill:#ef6c00,color:#fff
-    style I fill:#6a1b9a,color:#fff
-    style P fill:#c62828,color:#fff
-    style O fill:#00838f,color:#fff
-```
-
-
-> "Prompt engineering is dead; context engineering is the new game."
-> — Andrej Karpathy, 2025
-
-在 Agent 系统中，**上下文（Context）** 是模型唯一能"看见"的世界。无论你的工具链多强大、规划算法多精妙，如果送入模型的上下文窗口中信息不对、不全、或者被噪声淹没，Agent 的输出就不可能正确。**上下文工程**（Context Engineering）正是围绕这一核心问题展开的系统化方法论：它研究如何为每一次 LLM 调用精心构建最优的信息输入。
-
-**术语溯源。**"Context Engineering" 这一概念由 Shopify CEO **Tobi Lutke** 于 2025 年 6 月率先提出，他主张用"上下文工程"替代"提示工程（Prompt Engineering）"作为更有用的思维框架。**Andrej Karpathy** 随即以 "Prompt Engineering is dead; Context Engineering is the new game" 将其推向更广泛的技术社区，使其成为 2025 年 Agent 工程领域最广泛使用的术语（[[Andrej Karpathy on Context Engineering]](https://x.com/karpathy/status/1937902263504371795)；见本章题词）。
-
-与此同时，Anthropic 在其 Agent 设计指南中提出了四项核心上下文管理策略——**Write（写入）、Select（选择）、Compress（压缩）、Isolate（隔离）**——为 Agent 系统的上下文工程提供了清晰的操作框架（[[Building effective Agents - Anthropic]](https://www.anthropic.com/engineering/building-effective-Agents)）。本章在此基础上增加 **Persist（持久化）** 与 **Observe（观测）** 两个维度，形成完整的 **WSCIPO** 六策略体系——这正是本章的主题。
-
-本章将从六大原则出发，深入探讨上下文腐化检测、多层压缩、结构化笔记、上下文传递策略、长对话管理等关键主题，并给出完整的 TypeScript 实现。
+本章围绕上下文工程（Context Engineering）展开——构建优秀 Agent 的核心挑战不是写一条好的 Prompt，而是在正确的时间将正确的信息放入 LLM 的上下文窗口。本章在 Anthropic 提出的四策略基础上扩展为 WSCIPO 六策略体系（Write、Select、Compress、Isolate、Persist、Observe），深入探讨上下文腐化检测、多层压缩、结构化笔记和长对话管理等关键主题。前置依赖：第 3 章架构总览和第 4 章状态管理。
 
 ---
 
@@ -45,6 +16,8 @@ graph LR
 | 隔离 | **I**solate | 多 Agent 并行时如何防止上下文污染？ | 隔离度、共享效率 |
 | 持久化 | **P**ersist | 如何跨会话保存和恢复关键上下文？ | 检索准确率、存储成本 |
 | 观测 | **O**bserve | 如何实时监控上下文质量并预警？ | 健康分、异常检出率 |
+
+> **术语说明**：本书中 WSCIPO 专指 Context Engineering 的六原则框架（Write、Select、Compress、Isolate、Persist、Observe）。第 2 章中的认知架构模型使用"认知循环模型（Cognitive Loop）"命名，二者不同但互补——认知循环描述 Agent 的感知-思考-行动过程，WSCIPO 指导开发者如何工程化地管理上下文。
 
 ### 5.1.1 Write — 写入：构建高质量初始上下文
 
@@ -768,6 +741,10 @@ class ContextEngineeringFramework {
 }
 ```
 
+
+> **实践案例：代码仓库即记录系统**
+>
+> OpenAI 在一个完全由 Codex 智能体生成代码的内部项目中发现了一个深刻的教训：**从智能体的角度来看，它在运行时无法在上下文中访问的任何内容都是不存在的**。存储在 Google Docs、Slack 聊天记录或团队成员头脑中的知识，对智能体来说等同于不存在。因此，他们将代码仓库本身作为唯一的"记录系统"——所有设计决策、架构共识、产品规格和操作规范都必须以 Markdown 形式版本化到仓库中，成为智能体可检查、可验证、可修改的上下文工件。这为 Context Engineering 提供了一个关键实践原则：**上下文必须是可版本化、可发现、可验证的**，而非散落在各种非结构化渠道中的碎片信息。
 ### 5.8.4 从 Prompt Engineer 到 Context Engineer
 
 对于 Agent 开发者而言，这一范式转移意味着技能重心的调整：
